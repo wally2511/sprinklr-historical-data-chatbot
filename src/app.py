@@ -4,11 +4,19 @@ Streamlit web interface for the Sprinklr Historical Data Chatbot.
 Provides a chat interface with filtering options and example queries.
 """
 
+import sys
+from pathlib import Path
+
+# Add src directory to path for imports when running directly with streamlit
+src_dir = Path(__file__).parent
+if str(src_dir) not in sys.path:
+    sys.path.insert(0, str(src_dir))
+
 import streamlit as st
 from datetime import datetime, timedelta
 
-from .chatbot import create_chatbot
-from .config import config
+from chatbot import create_chatbot
+from config import config
 
 
 # Page configuration
