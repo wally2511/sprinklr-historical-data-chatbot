@@ -31,8 +31,12 @@ class IngestionPipeline:
         lines = []
         for msg in messages:
             role = msg.get("role", "unknown").upper()
+            sender = msg.get("sender", "")
             content = msg.get("content", "")
-            lines.append(f"{role}: {content}")
+            if sender:
+                lines.append(f"{role} ({sender}): {content}")
+            else:
+                lines.append(f"{role}: {content}")
         return "\n".join(lines)
 
     def _generate_summary_with_claude(self, conversation: str) -> str:
@@ -87,6 +91,41 @@ Summary:"""
             return f"User asked: {user_message[:200]}..."
         return "Conversation about faith-related topics."
 
+    def _build_searchable_text(self, case: Dict[str, Any], full_conversation: str) -> str:
+        """
+        Build searchable text from all available case fields.
+
+        Combines multiple fields to create a rich text for semantic search,
+        even when individual fields are short (like social media comments).
+        """
+        parts = []
+
+        # Add channel context
+        channel = case.get("channel", "")
+        if channel:
+            parts.append(f"This is a {channel} interaction.")
+
+        # Add brand context
+        brand = case.get("brand", "")
+        if brand:
+            parts.append(f"Brand: {brand}.")
+
+        # Add subject if meaningful
+        subject = case.get("subject", "")
+        if subject and len(subject) > 10:
+            parts.append(f"Subject: {subject}")
+
+        # Add description/message content
+        description = case.get("description", "")
+        if description:
+            parts.append(f"Message content: {description}")
+
+        # Add conversation if available
+        if full_conversation.strip():
+            parts.append(f"Conversation: {full_conversation}")
+
+        return " ".join(parts)
+
     def process_case(self, case: Dict[str, Any]) -> Dict[str, Any]:
         """
         Process a single case for storage.
@@ -101,18 +140,33 @@ Summary:"""
         messages = case.get("messages", [])
         full_conversation = self._format_conversation(messages)
 
-        # Generate summary
-        summary = self._generate_summary_with_claude(full_conversation)
+        # Build searchable text combining all fields
+        searchable_text = self._build_searchable_text(case, full_conversation)
+
+        # Generate summary based on available content
+        if full_conversation.strip() and len(full_conversation) > 100:
+            # Rich conversation - use AI summary
+            summary = self._generate_summary_with_claude(full_conversation)
+        else:
+            # Short content (social media comments) - use the searchable text as summary
+            summary = searchable_text
 
         return {
             "id": case.get("id", ""),
+            "case_number": case.get("case_number"),
             "summary": summary,
             "full_conversation": full_conversation,
+            "description": case.get("description", ""),
+            "subject": case.get("subject", ""),
             "created_at": case.get("created_at", ""),
             "channel": case.get("channel", ""),
+            "brand": case.get("brand", ""),
             "theme": case.get("theme", ""),
             "outcome": case.get("outcome", ""),
             "topics": case.get("topics", []),
+            "sentiment": case.get("sentiment", 0),
+            "language": case.get("language", ""),
+            "country": case.get("country", ""),
             "message_count": len(messages),
         }
 
@@ -201,22 +255,58 @@ Summary:"""
             max_cases=max_cases
         ):
             case_count += 1
-            print(f"Processing case {case_count}...")
+
+            # Extract metadata using client helper
+            metadata = SprinklrClient.extract_case_metadata(case)
+            brand = metadata.get("brand", "Unknown")
+
+            print(f"Processing case {case_count}: #{metadata.get('case_number')} ({brand})...")
+
+            # Format messages from Sprinklr API format
+            # New format has: content.text, senderProfile, senderType
+            messages = []
+            for msg in case.get("messages", []):
+                # Get message text from content.text
+                content = msg.get("content", {})
+                text = content.get("text", "") if isinstance(content, dict) else ""
+
+                # Determine role - check senderType or infer from profile
+                sender_type = msg.get("senderType", "")
+                if sender_type == "AGENT" or sender_type == "BRAND":
+                    role = "agent"
+                else:
+                    # Default to user for PROFILE or unknown
+                    role = "user"
+
+                # Get sender name for context
+                sender_profile = msg.get("senderProfile", {})
+                sender_name = sender_profile.get("name", "Unknown")
+
+                if text:
+                    messages.append({
+                        "role": role,
+                        "content": text,
+                        "sender": sender_name
+                    })
 
             # Map Sprinklr data to our format
             formatted_case = {
-                "id": case.get("id", ""),
-                "messages": [
-                    {"role": msg.get("sender", "user"), "content": msg.get("text", "")}
-                    for msg in case.get("messages", [])
-                ],
+                "id": metadata.get("case_id", ""),
+                "case_number": metadata.get("case_number"),
+                "messages": messages,
+                "description": metadata.get("description", ""),
+                "subject": metadata.get("subject", ""),
                 "created_at": datetime.fromtimestamp(
-                    case.get("createdTime", 0) / 1000
-                ).isoformat() if case.get("createdTime") else "",
-                "channel": case.get("channel", ""),
+                    metadata.get("created_time", 0) / 1000
+                ).isoformat() if metadata.get("created_time") else "",
+                "channel": metadata.get("channel", ""),
+                "brand": metadata.get("brand", ""),
                 "theme": "",  # Would need NLP to extract
-                "outcome": case.get("status", ""),
+                "outcome": metadata.get("status", ""),
                 "topics": [],  # Would need NLP to extract
+                "sentiment": metadata.get("sentiment", 0),
+                "language": metadata.get("language", ""),
+                "country": metadata.get("country", ""),
             }
 
             processed = self.process_case(formatted_case)
@@ -224,11 +314,13 @@ Summary:"""
 
             # Batch insert every 50 cases
             if len(processed_cases) >= 50:
+                print(f"Storing batch of {len(processed_cases)} cases...")
                 self.vector_store.add_cases_batch(processed_cases)
                 processed_cases = []
 
         # Insert remaining cases
         if processed_cases:
+            print(f"Storing final batch of {len(processed_cases)} cases...")
             self.vector_store.add_cases_batch(processed_cases)
 
         total = self.vector_store.get_case_count()

@@ -20,11 +20,11 @@ import argparse
 import sys
 from pathlib import Path
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add src directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from src.ingestion import IngestionPipeline
-from src.config import config
+from ingestion import IngestionPipeline
+from config import config
 
 
 def main():

@@ -26,15 +26,15 @@ st.set_page_config(
     layout="wide"
 )
 
-# Example queries
+# Example queries - updated to match actual social media data
 EXAMPLE_QUERIES = [
-    "What were the most common questions about faith sharing?",
-    "Summarize the types of conversations we had this month",
-    "What questions do people ask about prayer?",
-    "How do we typically handle conversations about doubt?",
+    "What are people commenting about on Instagram?",
+    "Show me Facebook posts from Radio Christian Voice",
+    "What types of interactions are we receiving?",
+    "Summarize the social media comments this month",
     "What topics come up most frequently?",
-    "Show me examples of conversations about grief and loss",
-    "What were the outcomes of conversations about relationships?",
+    "Show me comments from Brand1",
+    "What are people saying on YouTube and TikTok?",
 ]
 
 
@@ -104,6 +104,22 @@ def main():
                 selected_theme = None
         else:
             selected_theme = None
+
+        # Brand filter (multi-select)
+        if chatbot:
+            brands = chatbot.get_available_brands()
+            if brands:
+                selected_brands = st.multiselect(
+                    "Brands",
+                    options=brands,
+                    default=brands,  # All selected by default
+                    key="brands",
+                    help="Select one or more brands to filter results"
+                )
+            else:
+                selected_brands = None
+        else:
+            selected_brands = None
 
         st.divider()
 
@@ -190,6 +206,7 @@ def main():
                     start_date=start_date.isoformat() if start_date else None,
                     end_date=end_date.isoformat() if end_date else None,
                     theme=selected_theme,
+                    brands=selected_brands,
                     include_sources=True
                 )
 
@@ -202,8 +219,10 @@ def main():
                         date_str = source.get('date', '') or 'Unknown'
                         date_display = date_str[:10] if len(date_str) >= 10 else date_str
                         summary_str = source.get('summary', '') or 'No summary'
+                        brand_str = source.get('brand', 'Unknown')
                         st.markdown(
                             f"**{source['id']}** ({date_display})\n"
+                            f"Brand: {brand_str} | "
                             f"Theme: {source.get('theme', 'Unknown')} | "
                             f"Summary: {summary_str[:100]}..."
                         )
@@ -234,6 +253,7 @@ def main():
                     start_date=start_date.isoformat() if start_date else None,
                     end_date=end_date.isoformat() if end_date else None,
                     theme=selected_theme,
+                    brands=selected_brands,
                     include_sources=True
                 )
 
@@ -246,8 +266,10 @@ def main():
                         date_str = source.get('date', '') or 'Unknown'
                         date_display = date_str[:10] if len(date_str) >= 10 else date_str
                         summary_str = source.get('summary', '') or 'No summary'
+                        brand_str = source.get('brand', 'Unknown')
                         st.markdown(
                             f"**{source['id']}** ({date_display})\n"
+                            f"Brand: {brand_str} | "
                             f"Theme: {source.get('theme', 'Unknown')} | "
                             f"Summary: {summary_str[:100]}..."
                         )

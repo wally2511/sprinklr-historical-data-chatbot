@@ -64,12 +64,16 @@ class Chatbot:
             context_parts.append(f"""
 --- Case {i} (ID: {case['id']}) ---
 Date: {metadata.get('created_at', 'Unknown')}
+Brand: {metadata.get('brand', 'Unknown')}
 Channel: {metadata.get('channel', 'Unknown')}
 Theme: {metadata.get('theme', 'Unknown')}
 Topics: {metadata.get('topics', 'Unknown')}
 Outcome: {metadata.get('outcome', 'Unknown')}
+Subject: {metadata.get('subject', 'Unknown')}
 
 Summary: {case.get('summary', 'No summary available')}
+
+Description: {metadata.get('description', 'No description')}
 
 Conversation:
 {metadata.get('full_conversation', 'No conversation text available')}
@@ -83,7 +87,8 @@ Conversation:
         n_results: int = 10,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
-        theme: Optional[str] = None
+        theme: Optional[str] = None,
+        brands: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
         """
         Search for relevant cases.
@@ -94,6 +99,7 @@ Conversation:
             start_date: Optional date filter (ISO format)
             end_date: Optional date filter (ISO format)
             theme: Optional theme filter
+            brands: Optional list of brands to filter by
 
         Returns:
             List of matching cases
@@ -103,7 +109,8 @@ Conversation:
             n_results=n_results,
             start_date=start_date,
             end_date=end_date,
-            theme=theme
+            theme=theme,
+            brands=brands
         )
 
     def chat(
@@ -112,6 +119,7 @@ Conversation:
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         theme: Optional[str] = None,
+        brands: Optional[List[str]] = None,
         include_sources: bool = True
     ) -> Dict[str, Any]:
         """
@@ -122,6 +130,7 @@ Conversation:
             start_date: Optional date filter
             end_date: Optional date filter
             theme: Optional theme filter
+            brands: Optional list of brands to filter by
             include_sources: Whether to include source cases in response
 
         Returns:
@@ -133,7 +142,8 @@ Conversation:
             n_results=config.MAX_CONTEXT_CASES,
             start_date=start_date,
             end_date=end_date,
-            theme=theme
+            theme=theme,
+            brands=brands
         )
 
         # Build context from cases
@@ -184,6 +194,7 @@ Please provide a helpful, specific answer based on the cases above. If the cases
                     {
                         "id": case["id"],
                         "summary": case.get("summary", ""),
+                        "brand": case.get("metadata", {}).get("brand", ""),
                         "theme": case.get("metadata", {}).get("theme", ""),
                         "date": case.get("metadata", {}).get("created_at", ""),
                     }
@@ -206,6 +217,10 @@ Please provide a helpful, specific answer based on the cases above. If the cases
     def get_available_themes(self) -> List[str]:
         """Get all available themes for filtering."""
         return self.vector_store.get_all_themes()
+
+    def get_available_brands(self) -> List[str]:
+        """Get all available brands for filtering."""
+        return self.vector_store.get_all_brands()
 
     def get_date_range(self) -> tuple[Optional[str], Optional[str]]:
         """Get the date range of available data."""

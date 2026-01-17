@@ -29,12 +29,12 @@ class Config:
     USE_MOCK_DATA: bool = os.getenv("USE_MOCK_DATA", "true").lower() == "true"
     CHROMA_DB_PATH: str = os.getenv("CHROMA_DB_PATH", "./data/chroma_db")
 
-    # Sprinklr API Base URLs by environment
+    # Sprinklr API Base URLs by environment (includes env path)
     SPRINKLR_BASE_URLS = {
-        "prod2": "https://api2.sprinklr.com",
-        "prod3": "https://api3.sprinklr.com",
-        "prod4": "https://api4.sprinklr.com",
-        "prod5": "https://api5.sprinklr.com",
+        "prod2": "https://api2.sprinklr.com/prod2",
+        "prod3": "https://api3.sprinklr.com/prod3",
+        "prod4": "https://api4.sprinklr.com/prod4",
+        "prod5": "https://api5.sprinklr.com/prod5",
     }
 
     # Rate limiting settings (Sprinklr limits)

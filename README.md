@@ -2,12 +2,22 @@
 
 A RAG-powered chatbot that allows community managers and product teams to query historical social media engagement data from Sprinklr using natural language.
 
+## Current Status
+
+**Live Data Integration Complete:**
+- Connected to Sprinklr API with 28,264+ cases accessible
+- 50 cases ingested with full conversation transcripts
+- Chatbot running at http://localhost:8502
+- Rate limit recovery script available for resuming ingestion
+
 ## Features
 
 - **Natural Language Queries**: Ask questions about your engagement data in plain English
 - **Semantic Search**: Find relevant conversations using AI-powered vector search
 - **Case Summaries**: AI-generated summaries for better pattern recognition
 - **Date Range Filtering**: Analyze specific time periods
+- **Brand Filtering**: Filter results by specific brands
+- **Live Sprinklr Integration**: Full API integration with v1 Case Search and message retrieval
 - **Mock Data Mode**: Test the chatbot without Sprinklr API access
 
 ## Architecture
@@ -100,19 +110,45 @@ sprinklr-chatbot/
 ├── src/
 │   ├── __init__.py
 │   ├── config.py           # Configuration management
-│   ├── sprinklr_client.py  # Sprinklr API wrapper
+│   ├── sprinklr_client.py  # Sprinklr API wrapper (v1 + v2 search, message retrieval)
 │   ├── mock_data.py        # Sample data for testing
 │   ├── ingestion.py        # Data ingestion pipeline
 │   ├── vector_store.py     # ChromaDB operations
 │   ├── chatbot.py          # RAG chatbot logic
 │   └── app.py              # Streamlit interface
 ├── scripts/
-│   └── ingest_data.py      # CLI for data ingestion
+│   ├── ingest_data.py      # CLI for data ingestion
+│   ├── resume_ingestion.py # Wait for rate limit reset and resume
+│   ├── test_api.py         # Test API connectivity
+│   └── test_chatbot.py     # Test chatbot with current data
 ├── data/
 │   └── chroma_db/          # Local vector database
 ├── .env.example
 ├── requirements.txt
 └── README.md
+```
+
+## Sprinklr API Endpoints
+
+The client implements the following Sprinklr API endpoints:
+
+### Case Search (v1) - Primary
+```
+POST https://api3.sprinklr.com/{env}/api/v1/case/search
+```
+- Proper pagination with `start` and `rows`
+- Date filtering with `sinceDate`/`untilDate` (milliseconds)
+
+### Case Search (v2) - Alternative
+```
+POST https://api3.sprinklr.com/{env}/api/v2/search/CASE
+```
+- Pagination with `page.start` (1-indexed) and `page.size`
+
+### Message Retrieval
+```
+GET /api/v2/case/associated-messages?id={case_id}  # Get message IDs
+GET /api/v2/message/byMessageId?messageId={id}     # Get message content
 ```
 
 ## Development
@@ -127,10 +163,28 @@ The chatbot includes realistic sample conversations for testing without Sprinklr
 ### Rate Limits
 
 When using live Sprinklr data, be aware of rate limits:
-- 1000 API calls per hour
-- 10 API calls per second
+- **Hourly limit:** ~1000 API calls per hour (API returns 403 "Developer Over Rate")
+- **Per-second limit:** 10 API calls per second
 
 The client includes automatic rate limiting to stay within these bounds.
+
+**Important:** Each case requires ~N+2 API calls:
+- 1 search call to find cases
+- 1 call to get message IDs for a case
+- N calls to fetch individual messages
+
+For large ingestion batches, use the resume script to wait for rate limit reset:
+
+```bash
+# Check if rate limit has reset
+python scripts/resume_ingestion.py --check-only
+
+# Wait for reset and resume ingestion
+python scripts/resume_ingestion.py --max-cases 100 --days 90
+
+# Just try once without waiting
+python scripts/resume_ingestion.py --no-wait --max-cases 50
+```
 
 ## Privacy Considerations
 

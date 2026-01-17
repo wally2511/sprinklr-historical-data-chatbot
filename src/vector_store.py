@@ -105,16 +105,23 @@ class VectorStore:
             # Generate embedding
             embedding = self._generate_embedding(summary)
 
-            # Prepare metadata
+            # Prepare metadata - ChromaDB only supports string, int, float, bool
             clean_metadata = {
                 "summary": summary,
                 "full_conversation": case.get("full_conversation", "")[:5000],
+                "description": case.get("description", "")[:1000],
+                "subject": case.get("subject", "")[:500],
                 "created_at": case.get("created_at", ""),
                 "channel": case.get("channel", ""),
+                "brand": case.get("brand", ""),
                 "theme": case.get("theme", ""),
                 "outcome": case.get("outcome", ""),
                 "topics": ",".join(case.get("topics", [])),
                 "message_count": case.get("message_count", 0),
+                "sentiment": case.get("sentiment", 0),
+                "language": case.get("language", ""),
+                "country": case.get("country", ""),
+                "case_number": case.get("case_number") or 0,
             }
 
             ids.append(case_id)
@@ -138,7 +145,8 @@ class VectorStore:
         n_results: int = 10,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
-        theme: Optional[str] = None
+        theme: Optional[str] = None,
+        brands: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
         """
         Search for relevant cases using semantic similarity.
@@ -149,6 +157,7 @@ class VectorStore:
             start_date: Optional start date filter (ISO format)
             end_date: Optional end date filter (ISO format)
             theme: Optional theme filter
+            brands: Optional list of brands to filter by
 
         Returns:
             List of matching cases with scores
@@ -162,6 +171,10 @@ class VectorStore:
 
         if theme:
             where_conditions.append({"theme": {"$eq": theme}})
+
+        if brands and len(brands) > 0:
+            # Use $in operator for multiple brands
+            where_conditions.append({"brand": {"$in": brands}})
 
         # Note: ChromaDB date filtering is string-based
         # For more complex date filtering, we'd filter post-query
@@ -227,6 +240,16 @@ class VectorStore:
                 if metadata.get("theme"):
                     themes.add(metadata["theme"])
         return sorted(list(themes))
+
+    def get_all_brands(self) -> List[str]:
+        """Get all unique brands in the store."""
+        results = self.collection.get(include=["metadatas"])
+        brands = set()
+        if results and results["metadatas"]:
+            for metadata in results["metadatas"]:
+                if metadata.get("brand"):
+                    brands.add(metadata["brand"])
+        return sorted(list(brands))
 
     def get_date_range(self) -> tuple[Optional[str], Optional[str]]:
         """Get the date range of cases in the store."""
