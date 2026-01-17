@@ -9,10 +9,10 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import anthropic
 
-from .config import config
-from .vector_store import VectorStore
-from .sprinklr_client import SprinklrClient
-from .mock_data import generate_mock_cases
+from config import config
+from vector_store import VectorStore
+from sprinklr_client import SprinklrClient
+from mock_data import generate_mock_cases
 
 
 class IngestionPipeline:

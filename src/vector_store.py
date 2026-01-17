@@ -10,7 +10,7 @@ import chromadb
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
 
-from .config import config
+from config import config
 
 
 class VectorStore:

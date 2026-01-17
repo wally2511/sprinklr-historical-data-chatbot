@@ -7,8 +7,8 @@ Uses semantic search to find relevant cases and Claude to generate responses.
 from typing import List, Dict, Any, Optional
 import anthropic
 
-from .config import config
-from .vector_store import VectorStore
+from config import config
+from vector_store import VectorStore
 
 
 SYSTEM_PROMPT = """You are an AI assistant helping community managers and product teams analyze historical social media engagement data. You have access to conversation cases from Sprinklr that contain interactions between users and agents.
