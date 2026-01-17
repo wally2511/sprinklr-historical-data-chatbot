@@ -442,7 +442,7 @@ class SprinklrClient:
         Fetch multiple messages in bulk using a single API call.
 
         Uses the Sprinklr bulk message fetch API:
-        POST /api/v2/message/bulk-fetch
+        POST https://api3.sprinklr.com/{env}/api/v2/message/bulk-fetch
 
         This is more efficient than fetching messages individually,
         reducing API calls from N to 1 for N messages.
@@ -456,15 +456,28 @@ class SprinklrClient:
         if not message_ids:
             return []
 
+        # Bulk fetch API uses api3.sprinklr.com
+        api3_base_url = self.base_url.replace("api2.sprinklr.com", "api3.sprinklr.com")
+        url = f"{api3_base_url}/api/v2/message/bulk-fetch"
+        headers = self._get_headers()
+
         try:
-            response = self._make_request(
-                "POST",
-                "/api/v2/message/bulk-fetch",
-                json_data=message_ids
+            self.rate_limiter.wait_if_needed()
+            response = self.session.request(
+                method="POST",
+                url=url,
+                headers=headers,
+                json=message_ids,
+                timeout=30
             )
-            return response.get("data", [])
-        except SprinklrAPIError as e:
+            response.raise_for_status()
+            data = response.json()
+            return data.get("data", [])
+        except requests.exceptions.HTTPError as e:
             print(f"Warning: Bulk message fetch failed: {e}")
+            return []
+        except requests.exceptions.RequestException as e:
+            print(f"Warning: Bulk message fetch request error: {e}")
             return []
 
     def get_case_messages(self, case_id: str) -> List[Dict[str, Any]]:

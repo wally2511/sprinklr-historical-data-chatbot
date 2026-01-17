@@ -6,7 +6,7 @@ A RAG-powered chatbot that allows community managers and product teams to query 
 
 **Live Data Integration Complete:**
 - Connected to Sprinklr API with 473,602+ cases accessible
-- 100 cases ingested with full conversation transcripts
+- **300 cases ingested** with full conversation transcripts (bulk API)
 - Chatbot running at http://localhost:8502
 - Brands available: Brand1, Radio Christian Voice, Sharek Online
 - Date range: August 2025 to January 2026
