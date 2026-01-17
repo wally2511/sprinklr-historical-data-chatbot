@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:dev.sprinklr.com)",
+      "WebFetch(domain:developer.sprinklr.com)",
+      "WebSearch",
+      "WebFetch(domain:www.sprinklr.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(dir /s /b)",
+      "Bash(python -m py_compile:*)",
+      "Bash(dir:*)",
+      "Bash(python -m venv:*)",
+      "Bash(./venv/Scripts/pip install:*)",
+      "Bash(./venv/Scripts/python:*)",
+      "Bash(./venv/Scripts/streamlit:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}

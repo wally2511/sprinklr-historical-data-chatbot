@@ -1,0 +1,251 @@
+"""
+Data ingestion pipeline for processing and storing Sprinklr cases.
+
+Handles fetching data from Sprinklr or mock data, generating AI summaries,
+and storing in the vector database.
+"""
+
+from datetime import datetime, timedelta
+from typing import List, Dict, Any, Optional
+import anthropic
+
+from .config import config
+from .vector_store import VectorStore
+from .sprinklr_client import SprinklrClient
+from .mock_data import generate_mock_cases
+
+
+class IngestionPipeline:
+    """Pipeline for ingesting case data into the vector store."""
+
+    def __init__(self):
+        """Initialize the ingestion pipeline."""
+        self.vector_store = VectorStore()
+        self.claude_client = None
+
+        if config.validate_anthropic_config():
+            self.claude_client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+
+    def _format_conversation(self, messages: List[Dict[str, Any]]) -> str:
+        """Format messages into a readable conversation string."""
+        lines = []
+        for msg in messages:
+            role = msg.get("role", "unknown").upper()
+            content = msg.get("content", "")
+            lines.append(f"{role}: {content}")
+        return "\n".join(lines)
+
+    def _generate_summary_with_claude(self, conversation: str) -> str:
+        """
+        Generate a summary of the conversation using Claude.
+
+        Args:
+            conversation: Formatted conversation text
+
+        Returns:
+            AI-generated summary
+        """
+        if not self.claude_client:
+            return self._generate_simple_summary(conversation)
+
+        try:
+            response = self.claude_client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=300,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": f"""Summarize this conversation in 2-3 sentences. Focus on:
+1. The main topic or question the user asked about
+2. Key themes (faith, prayer, doubt, relationships, etc.)
+3. The outcome or resolution
+
+Conversation:
+{conversation}
+
+Summary:"""
+                    }
+                ]
+            )
+            return response.content[0].text.strip()
+
+        except Exception as e:
+            print(f"Warning: Claude API error, using simple summary: {e}")
+            return self._generate_simple_summary(conversation)
+
+    def _generate_simple_summary(self, conversation: str) -> str:
+        """Generate a simple summary without AI (fallback)."""
+        # Extract first user message as main topic
+        lines = conversation.split("\n")
+        user_message = ""
+        for line in lines:
+            if line.startswith("USER:"):
+                user_message = line.replace("USER:", "").strip()
+                break
+
+        if user_message:
+            return f"User asked: {user_message[:200]}..."
+        return "Conversation about faith-related topics."
+
+    def process_case(self, case: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process a single case for storage.
+
+        Args:
+            case: Raw case data with messages
+
+        Returns:
+            Processed case with summary and formatted conversation
+        """
+        # Format the conversation
+        messages = case.get("messages", [])
+        full_conversation = self._format_conversation(messages)
+
+        # Generate summary
+        summary = self._generate_summary_with_claude(full_conversation)
+
+        return {
+            "id": case.get("id", ""),
+            "summary": summary,
+            "full_conversation": full_conversation,
+            "created_at": case.get("created_at", ""),
+            "channel": case.get("channel", ""),
+            "theme": case.get("theme", ""),
+            "outcome": case.get("outcome", ""),
+            "topics": case.get("topics", []),
+            "message_count": len(messages),
+        }
+
+    def ingest_mock_data(
+        self,
+        num_cases: int = 50,
+        days_back: int = 30,
+        clear_existing: bool = True
+    ) -> int:
+        """
+        Ingest mock data for testing.
+
+        Args:
+            num_cases: Number of mock cases to generate
+            days_back: Days back to spread cases
+            clear_existing: Whether to clear existing data
+
+        Returns:
+            Number of cases ingested
+        """
+        print(f"Generating {num_cases} mock cases...")
+
+        if clear_existing:
+            print("Clearing existing data...")
+            self.vector_store.clear()
+
+        # Generate mock cases
+        cases = generate_mock_cases(num_cases, days_back)
+
+        # Process and store cases
+        processed_cases = []
+        for i, case in enumerate(cases):
+            print(f"Processing case {i + 1}/{num_cases}...")
+            processed = self.process_case(case)
+            processed_cases.append(processed)
+
+        print(f"Storing {len(processed_cases)} cases in vector store...")
+        count = self.vector_store.add_cases_batch(processed_cases)
+
+        print(f"Successfully ingested {count} cases.")
+        return count
+
+    def ingest_live_data(
+        self,
+        days_back: int = 30,
+        max_cases: Optional[int] = None,
+        clear_existing: bool = True
+    ) -> int:
+        """
+        Ingest live data from Sprinklr API.
+
+        Args:
+            days_back: Number of days of historical data to fetch
+            max_cases: Maximum number of cases to fetch (None for all)
+            clear_existing: Whether to clear existing data
+
+        Returns:
+            Number of cases ingested
+        """
+        if not config.validate_sprinklr_config():
+            raise ValueError(
+                "Sprinklr API credentials not configured. "
+                "Please set SPRINKLR_API_KEY and SPRINKLR_ACCESS_TOKEN in .env"
+            )
+
+        print(f"Fetching cases from the last {days_back} days...")
+
+        if clear_existing:
+            print("Clearing existing data...")
+            self.vector_store.clear()
+
+        # Initialize Sprinklr client
+        client = SprinklrClient()
+
+        # Calculate date range
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days_back)
+
+        # Fetch and process cases
+        processed_cases = []
+        case_count = 0
+
+        for case in client.fetch_cases_with_messages(
+            start_date=start_date,
+            end_date=end_date,
+            max_cases=max_cases
+        ):
+            case_count += 1
+            print(f"Processing case {case_count}...")
+
+            # Map Sprinklr data to our format
+            formatted_case = {
+                "id": case.get("id", ""),
+                "messages": [
+                    {"role": msg.get("sender", "user"), "content": msg.get("text", "")}
+                    for msg in case.get("messages", [])
+                ],
+                "created_at": datetime.fromtimestamp(
+                    case.get("createdTime", 0) / 1000
+                ).isoformat() if case.get("createdTime") else "",
+                "channel": case.get("channel", ""),
+                "theme": "",  # Would need NLP to extract
+                "outcome": case.get("status", ""),
+                "topics": [],  # Would need NLP to extract
+            }
+
+            processed = self.process_case(formatted_case)
+            processed_cases.append(processed)
+
+            # Batch insert every 50 cases
+            if len(processed_cases) >= 50:
+                self.vector_store.add_cases_batch(processed_cases)
+                processed_cases = []
+
+        # Insert remaining cases
+        if processed_cases:
+            self.vector_store.add_cases_batch(processed_cases)
+
+        total = self.vector_store.get_case_count()
+        print(f"Successfully ingested {total} cases.")
+        return total
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get statistics about the ingested data."""
+        count = self.vector_store.get_case_count()
+        themes = self.vector_store.get_all_themes()
+        date_range = self.vector_store.get_date_range()
+
+        return {
+            "total_cases": count,
+            "themes": themes,
+            "date_range": {
+                "start": date_range[0],
+                "end": date_range[1]
+            }
+        }

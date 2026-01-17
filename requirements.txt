@@ -1,0 +1,22 @@
+# Sprinklr Historical Data Chatbot - Dependencies
+
+# AI/LLM
+anthropic>=0.18.0         # Claude API
+
+# Vector Database
+chromadb>=0.4.0           # Vector database for semantic search
+
+# Embeddings
+sentence-transformers>=2.2.0  # Local embeddings (free, no API calls)
+
+# Web Interface
+streamlit>=1.30.0         # Chat interface
+
+# HTTP & API
+requests>=2.31.0          # HTTP client for Sprinklr API
+
+# Configuration
+python-dotenv>=1.0.0      # Environment variable management
+
+# Utilities
+pandas>=2.0.0             # Data manipulation
