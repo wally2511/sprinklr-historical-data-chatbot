@@ -437,18 +437,18 @@ class SprinklrClient:
         except SprinklrAPIError:
             return None
 
-    def get_messages_bulk(self, message_ids: List[str]) -> List[Dict[str, Any]]:
+    def get_messages_bulk(self, message_ids: List[str], chunk_size: int = 50) -> List[Dict[str, Any]]:
         """
-        Fetch multiple messages in bulk using a single API call.
+        Fetch multiple messages in bulk using the bulk fetch API.
 
         Uses the Sprinklr bulk message fetch API:
         POST https://api3.sprinklr.com/{env}/api/v2/message/bulk-fetch
 
-        This is more efficient than fetching messages individually,
-        reducing API calls from N to 1 for N messages.
+        For large message lists, chunks requests to avoid API limits.
 
         Args:
             message_ids: List of message ID strings
+            chunk_size: Max messages per request (default 50)
 
         Returns:
             List of message dictionaries
@@ -461,24 +461,32 @@ class SprinklrClient:
         url = f"{api3_base_url}/api/v2/message/bulk-fetch"
         headers = self._get_headers()
 
-        try:
-            self.rate_limiter.wait_if_needed()
-            response = self.session.request(
-                method="POST",
-                url=url,
-                headers=headers,
-                json=message_ids,
-                timeout=30
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data.get("data", [])
-        except requests.exceptions.HTTPError as e:
-            print(f"Warning: Bulk message fetch failed: {e}")
-            return []
-        except requests.exceptions.RequestException as e:
-            print(f"Warning: Bulk message fetch request error: {e}")
-            return []
+        all_messages = []
+
+        # Process in chunks to avoid API limits
+        for i in range(0, len(message_ids), chunk_size):
+            chunk = message_ids[i:i + chunk_size]
+
+            try:
+                self.rate_limiter.wait_if_needed()
+                response = self.session.request(
+                    method="POST",
+                    url=url,
+                    headers=headers,
+                    json=chunk,
+                    timeout=30
+                )
+                response.raise_for_status()
+                data = response.json()
+                messages = data.get("data", [])
+                all_messages.extend(messages)
+            except requests.exceptions.HTTPError as e:
+                print(f"Warning: Bulk message fetch failed for chunk: {e}")
+                # Continue with other chunks
+            except requests.exceptions.RequestException as e:
+                print(f"Warning: Bulk message fetch request error: {e}")
+
+        return all_messages
 
     def get_case_messages(self, case_id: str) -> List[Dict[str, Any]]:
         """

@@ -263,20 +263,18 @@ Summary:"""
             print(f"Processing case {case_count}: #{metadata.get('case_number')} ({brand})...")
 
             # Format messages from Sprinklr API format
-            # New format has: content.text, senderProfile, senderType
+            # Key fields: content.text, senderProfile, brandPost
             messages = []
             for msg in case.get("messages", []):
                 # Get message text from content.text
                 content = msg.get("content", {})
                 text = content.get("text", "") if isinstance(content, dict) else ""
 
-                # Determine role - check senderType or infer from profile
-                sender_type = msg.get("senderType", "")
-                if sender_type == "AGENT" or sender_type == "BRAND":
-                    role = "agent"
-                else:
-                    # Default to user for PROFILE or unknown
-                    role = "user"
+                # Determine role using brandPost field (most reliable)
+                # brandPost=True means it's a brand/agent message
+                # brandPost=False means it's a user/fan message
+                is_brand_post = msg.get("brandPost", False)
+                role = "agent" if is_brand_post else "user"
 
                 # Get sender name for context
                 sender_profile = msg.get("senderProfile", {})
