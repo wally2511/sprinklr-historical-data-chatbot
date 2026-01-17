@@ -147,11 +147,12 @@ POST https://api3.sprinklr.com/{env}/api/v2/search/CASE
 ```
 - Pagination with `page.start` (1-indexed) and `page.size`
 
-### Message Retrieval
+### Message Retrieval (Bulk)
 ```
 GET /api/v2/case/associated-messages?id={case_id}  # Get message IDs
-GET /api/v2/message/byMessageId?messageId={id}     # Get message content
+POST /api/v2/message/bulk-fetch                     # Fetch messages in bulk
 ```
+The bulk fetch API retrieves all messages in a single call, reducing API usage from N+1 calls to just 2 calls per case.
 
 ## Development
 
@@ -170,10 +171,10 @@ When using live Sprinklr data, be aware of rate limits:
 
 The client includes automatic rate limiting to stay within these bounds.
 
-**Important:** Each case requires ~N+2 API calls:
-- 1 search call to find cases
+**API calls per case (with bulk fetch):**
+- 1 search call to find cases (paginated)
 - 1 call to get message IDs for a case
-- N calls to fetch individual messages
+- 1 bulk fetch call to get all messages (regardless of count)
 
 For large ingestion batches, use the resume script to wait for rate limit reset:
 

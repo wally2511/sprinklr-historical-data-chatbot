@@ -419,6 +419,9 @@ class SprinklrClient:
         Uses the correct Sprinklr API endpoint:
         GET /api/v2/message/byMessageId?messageId={message_id}
 
+        Note: For fetching multiple messages, use get_messages_bulk() instead
+        for better efficiency.
+
         Args:
             message_id: The message ID
 
@@ -434,10 +437,42 @@ class SprinklrClient:
         except SprinklrAPIError:
             return None
 
+    def get_messages_bulk(self, message_ids: List[str]) -> List[Dict[str, Any]]:
+        """
+        Fetch multiple messages in bulk using a single API call.
+
+        Uses the Sprinklr bulk message fetch API:
+        POST /api/v2/message/bulk-fetch
+
+        This is more efficient than fetching messages individually,
+        reducing API calls from N to 1 for N messages.
+
+        Args:
+            message_ids: List of message ID strings
+
+        Returns:
+            List of message dictionaries
+        """
+        if not message_ids:
+            return []
+
+        try:
+            response = self._make_request(
+                "POST",
+                "/api/v2/message/bulk-fetch",
+                json_data=message_ids
+            )
+            return response.get("data", [])
+        except SprinklrAPIError as e:
+            print(f"Warning: Bulk message fetch failed: {e}")
+            return []
+
     def get_case_messages(self, case_id: str) -> List[Dict[str, Any]]:
         """
-        Fetch all messages for a case by first getting message IDs,
-        then fetching each message's content.
+        Fetch all messages for a case using bulk message API.
+
+        First gets message IDs associated with the case, then fetches
+        all messages in a single bulk API call for efficiency.
 
         Args:
             case_id: The case ID
@@ -451,12 +486,8 @@ class SprinklrClient:
         if not message_ids:
             return []
 
-        # Fetch each message
-        messages = []
-        for msg_id in message_ids:
-            msg = self.get_message_by_id(msg_id)
-            if msg:
-                messages.append(msg)
+        # Fetch all messages in bulk (single API call instead of N calls)
+        messages = self.get_messages_bulk(message_ids)
 
         # Sort by timestamp
         messages.sort(key=lambda m: m.get("channelCreatedTime", 0))
