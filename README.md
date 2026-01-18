@@ -4,23 +4,29 @@ A RAG-powered chatbot that allows community managers and product teams to query 
 
 ## Current Status
 
-**Live Data Integration Complete:**
+**Multi-Agent Architecture Complete:**
 - Connected to Sprinklr API with 473,602+ cases accessible
-- **300 cases ingested** with full conversation transcripts (bulk API)
-- Chatbot running at http://localhost:8502
+- **100 cases ingested** with full conversation transcripts and extracted themes
+- Chatbot running at http://localhost:8505
 - Brands available: Brand1, Radio Christian Voice, Sharek Online
+- Themes: faith, prayer, grief, anxiety, doubt, relationships, forgiveness, bible_study, evangelism, and more
 - Date range: August 2025 to January 2026
-- Rate limit recovery script available for resuming ingestion
+- Multi-agent system handles specific case lookups, broad searches, filtered queries, and aggregations
 
 ## Features
 
 - **Natural Language Queries**: Ask questions about your engagement data in plain English
+- **Multi-Agent Architecture**: Intelligent query routing for optimal search strategies
+- **Specific Case Lookup**: Query individual cases by number (e.g., "What happened in case #478117?")
+- **Aggregation Queries**: Get statistics and distributions (e.g., "What are the most common themes?")
 - **Semantic Search**: Find relevant conversations using AI-powered vector search
+- **Filtered Search**: Combine theme, brand, and date filters
+- **Theme Extraction**: Automatic categorization of conversations into 16 faith-based themes
 - **Case Summaries**: AI-generated summaries for better pattern recognition
 - **Date Range Filtering**: Analyze specific time periods
 - **Brand Filtering**: Filter results by specific brands
 - **Live Sprinklr Integration**: Full API integration with v1 Case Search and message retrieval
-- **Mock Data Mode**: Test the chatbot without Sprinklr API access
+- **Dual LLM Support**: Works with both Anthropic Claude and OpenAI GPT-4o
 
 ## Architecture
 
@@ -28,14 +34,51 @@ A RAG-powered chatbot that allows community managers and product teams to query 
 User Interface (Streamlit)
     │
     ▼
-Chatbot Engine (Claude LLM + RAG)
+┌─────────────────────────────────────────┐
+│           Chatbot Engine                │
+│  ┌─────────────────────────────────┐    │
+│  │        Query Agent              │    │
+│  │  - Analyze query type           │    │
+│  │  - Extract filters (date/theme) │    │
+│  │  - Generate search plan         │    │
+│  └──────────────┬──────────────────┘    │
+│                 │ QueryPlan              │
+│                 ▼                        │
+│  ┌─────────────────────────────────┐    │
+│  │        Orchestrator             │    │
+│  │  - Execute search strategy      │    │
+│  │  - Route to appropriate method  │    │
+│  └──────────────┬──────────────────┘    │
+│                 │                        │
+│    ┌────────────┼────────────┐          │
+│    ▼            ▼            ▼          │
+│ Specific    Semantic    Aggregation     │
+│ Lookup      Search      (count_by_*)    │
+│    │            │            │          │
+│    └────────────┼────────────┘          │
+│                 ▼                        │
+│  ┌─────────────────────────────────┐    │
+│  │       Response Agent            │    │
+│  │  - Context-aware responses      │    │
+│  │  - Adapts to query type         │    │
+│  └─────────────────────────────────┘    │
+└─────────────────────────────────────────┘
     │
     ▼
 Vector Database (ChromaDB)
     │
     ▼
-Data Ingestion (Sprinklr API or Mock Data)
+Data Ingestion (Sprinklr API + Theme Extraction)
 ```
+
+## Query Types
+
+| Type | Example | Behavior |
+|------|---------|----------|
+| **Specific Case** | "What happened in case #478117?" | Direct lookup, full conversation details |
+| **Aggregation** | "What are the most common themes?" | Statistical summary with percentages |
+| **Filtered Search** | "Show me anxiety cases from Brand1" | Semantic search with filters applied |
+| **Broad Search** | "What questions do users ask about prayer?" | Synthesizes across many cases |
 
 ## Quick Start
 
@@ -88,6 +131,20 @@ streamlit run src/app.py
 | `SPRINKLR_API_SECRET` | For live data | Sprinklr API secret |
 | `SPRINKLR_ENVIRONMENT` | For live data | Sprinklr environment (prod2, prod3, etc.) |
 | `SPRINKLR_ACCESS_TOKEN` | For live data | OAuth access token |
+| `OPENAI_API_KEY` | Optional | OpenAI API key (for GPT-4o provider) |
+| `LLM_PROVIDER` | No | LLM provider: `anthropic` (default) or `openai` |
+| `USE_MULTI_AGENT` | No | Enable multi-agent mode (default: `true`) |
+
+### Multi-Agent Configuration
+
+The multi-agent system can be configured via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `USE_MULTI_AGENT` | `true` | Enable/disable multi-agent architecture |
+| `MAX_CONTEXT_CASES_BROAD` | `50` | Max cases for broad/aggregation queries |
+| `MAX_CONTEXT_CASES_SPECIFIC` | `5` | Max cases for specific lookups |
+| `THEME_EXTRACTION_METHOD` | `keyword` | Theme extraction method (`keyword` or `llm`) |
 
 ### Sprinklr API Setup
 
@@ -99,11 +156,24 @@ streamlit run src/app.py
 
 ## Example Queries
 
-- "What were the most common questions about faith sharing last week?"
+**Specific Case Lookup:**
+- "What happened in case #478117?"
+- "Show me the details of case #475141"
+
+**Aggregation Queries:**
+- "What are the most common themes?"
+- "How many cases per brand?"
+- "What's the distribution of topics in our conversations?"
+
+**Filtered Search:**
+- "Show me anxiety cases from Brand1"
+- "What prayer requests did we get last week?"
+- "Find grief-related conversations from Radio Christian Voice"
+
+**Broad Analysis:**
+- "What questions do people ask about faith?"
 - "Summarize the types of conversations we had this month"
-- "What questions do people ask about prayer?"
-- "How many conversations involved doubt or questioning?"
-- "What were the main topics discussed in October?"
+- "What are the common concerns users bring up?"
 
 ## Project Structure
 
@@ -114,10 +184,18 @@ sprinklr-chatbot/
 │   ├── config.py           # Configuration management
 │   ├── sprinklr_client.py  # Sprinklr API wrapper (v1 + v2 search, message retrieval)
 │   ├── mock_data.py        # Sample data for testing
-│   ├── ingestion.py        # Data ingestion pipeline
-│   ├── vector_store.py     # ChromaDB operations
-│   ├── chatbot.py          # RAG chatbot logic
-│   └── app.py              # Streamlit interface
+│   ├── ingestion.py        # Data ingestion pipeline with theme extraction
+│   ├── vector_store.py     # ChromaDB operations + aggregations
+│   ├── chatbot.py          # RAG chatbot with multi-agent support
+│   ├── app.py              # Streamlit interface
+│   ├── agents/             # Multi-agent system
+│   │   ├── __init__.py
+│   │   ├── query_agent.py      # Query analysis and plan generation
+│   │   ├── response_agent.py   # Context-aware response generation
+│   │   └── orchestrator.py     # Agent coordination
+│   └── services/           # Shared services
+│       ├── __init__.py
+│       └── theme_extractor.py  # Keyword-based theme extraction
 ├── scripts/
 │   ├── ingest_data.py      # CLI for data ingestion
 │   ├── resume_ingestion.py # Wait for rate limit reset and resume
