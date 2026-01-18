@@ -166,6 +166,8 @@ class VectorStore:
         query_embedding = self._generate_embedding(query)
 
         # Build where clause for filtering
+        # Note: ChromaDB comparison operators ($gte, $lte) only work with numeric types,
+        # so date filtering must be done post-query on ISO date strings
         where_clause = None
         where_conditions = []
 
@@ -176,8 +178,6 @@ class VectorStore:
             # Use $in operator for multiple brands
             where_conditions.append({"brand": {"$in": brands}})
 
-        # Note: ChromaDB date filtering is string-based
-        # For more complex date filtering, we'd filter post-query
         if where_conditions:
             if len(where_conditions) == 1:
                 where_clause = where_conditions[0]
@@ -203,13 +203,15 @@ class VectorStore:
                     "distance": results["distances"][0][i] if results["distances"] else 0,
                 }
 
-                # Apply date filtering if specified (post-query filtering)
+                # Apply date filtering post-query (ChromaDB doesn't support string comparisons)
                 if start_date or end_date:
                     case_date = case["metadata"].get("created_at", "")
                     if case_date:
-                        if start_date and case_date < start_date:
+                        # Extract date portion only (YYYY-MM-DD) for comparison
+                        case_date_only = case_date[:10] if len(case_date) >= 10 else case_date
+                        if start_date and case_date_only < start_date[:10]:
                             continue
-                        if end_date and case_date > end_date:
+                        if end_date and case_date_only > end_date[:10]:
                             continue
 
                 cases.append(case)

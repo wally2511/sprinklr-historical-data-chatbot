@@ -230,6 +230,7 @@ def generate_mock_cases(num_cases: int = 50, days_back: int = 30) -> List[Dict[s
             "updated_at": case_date.isoformat(),
             "status": random.choice(["resolved", "closed"]),
             "channel": random.choice(["facebook", "instagram", "twitter", "web_chat"]),
+            "brand": random.choice(["Brand1", "Radio Christian Voice", "Sharek Online"]),
             "messages": messages,
             "theme": template["theme"],
             "outcome": template["outcome"],
