@@ -5,8 +5,11 @@ This agent processes retrieved cases and generates responses tailored
 to the query type (specific case analysis, broad synthesis, aggregation).
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from dataclasses import dataclass
+
+if TYPE_CHECKING:
+    from .query_agent import CompoundQueryPlan
 
 
 @dataclass
@@ -58,6 +61,51 @@ Your role is to:
 4. Offer actionable insights based on the conversations
 
 Be empathetic when discussing sensitive topics and cite case numbers when referencing examples."""
+
+    # Compound search prompts for multi-step strategies
+    COMPOUND_PROMPT_HIERARCHICAL = """You are synthesizing results from a multi-step search strategy for customer service cases from faith-based organizations.
+
+Structure your response as:
+1. **Overview**: High-level findings from statistics (if available)
+2. **Key Patterns**: Synthesized insights from case summaries
+3. **Detailed Examples**: Specific cases with quotes and analysis
+4. **Insights & Recommendations**: Actionable takeaways
+
+Guidelines:
+- Cite case numbers when referencing specific examples (e.g., "In Case #12345...")
+- Be empathetic when discussing sensitive topics like grief, doubt, or mental health
+- Connect statistics to real examples for concrete understanding
+- Prioritize actionable insights over raw data summaries"""
+
+    COMPOUND_PROMPT_COMPARATIVE = """You are comparing different segments of customer service data from faith-based organizations.
+
+Structure your response as:
+1. **Comparison Overview**: Key differences and similarities at a glance
+2. **Segment A Analysis**: Findings for the first group with examples
+3. **Segment B Analysis**: Findings for the second group with examples
+4. **Key Differences**: What stands out between segments
+5. **Recommendations**: Actionable insights from the comparison
+
+Guidelines:
+- Cite case numbers and be specific about which segment each example comes from
+- Use concrete examples to illustrate differences
+- Be balanced in analysis, highlighting both strengths and areas for improvement
+- Be empathetic when discussing sensitive topics"""
+
+    COMPOUND_PROMPT_TIMELINE = """You are analyzing changes over time in customer service data from faith-based organizations.
+
+Structure your response as:
+1. **Timeline Overview**: High-level trends observed
+2. **Earlier Period**: Patterns and examples from the first period
+3. **Later Period**: Patterns and examples from the later period
+4. **Notable Changes**: What shifted and potential reasons
+5. **Implications**: What this means going forward
+
+Guidelines:
+- Cite case numbers and dates when referencing examples
+- Highlight both quantitative changes (if statistics available) and qualitative shifts
+- Speculate thoughtfully on reasons for changes
+- Be empathetic when discussing sensitive topics"""
 
     def __init__(self, llm_client=None, provider: str = "anthropic"):
         """
@@ -320,3 +368,178 @@ Description: {metadata.get('description', 'N/A')}
                 "outcome": metadata.get("outcome", "")
             })
         return sources
+
+    def process_compound(
+        self,
+        plan: "CompoundQueryPlan",
+        step_results: List[Dict[str, Any]],
+        cases: List[Dict[str, Any]],
+        aggregations: Dict[str, Dict[str, Any]],
+        original_query: str
+    ) -> ResponseResult:
+        """
+        Generate a response from compound (multi-step) search results.
+
+        Args:
+            plan: The CompoundQueryPlan that was executed
+            step_results: Results from each step (with step metadata)
+            cases: All collected cases (deduplicated)
+            aggregations: All aggregation data keyed by step purpose
+            original_query: The user's original query
+
+        Returns:
+            ResponseResult with synthesized response
+        """
+        # Select prompt based on synthesis strategy
+        if plan.synthesis_strategy == "comparative":
+            system_prompt = self.COMPOUND_PROMPT_COMPARATIVE
+        elif plan.synthesis_strategy == "timeline":
+            system_prompt = self.COMPOUND_PROMPT_TIMELINE
+        else:
+            system_prompt = self.COMPOUND_PROMPT_HIERARCHICAL
+
+        # Build structured context
+        context_parts = []
+
+        # Add aggregation data
+        if aggregations:
+            context_parts.append("=== STATISTICAL DATA ===")
+            for purpose, data in aggregations.items():
+                context_parts.append(f"\n**{purpose}:**")
+                context_parts.append(self._format_aggregation_data(data))
+
+        # Separate cases by detail level
+        summary_cases = [c for c in cases if c.get("_detail_level") == "summary"]
+        detailed_cases = [c for c in cases if c.get("_detail_level") == "full_conversation"]
+
+        # Add case summaries
+        if summary_cases:
+            context_parts.append(f"\n=== CASE SUMMARIES ({len(summary_cases)} cases) ===")
+            context_parts.append(self._build_compound_summary_context(summary_cases))
+
+        # Add detailed transcripts
+        if detailed_cases:
+            context_parts.append(f"\n=== DETAILED TRANSCRIPTS ({len(detailed_cases)} cases) ===")
+            context_parts.append(self._build_compound_detailed_context(detailed_cases))
+
+        context = "\n".join(context_parts)
+
+        # Generate response
+        user_message = f"""Question: {original_query}
+
+{context}
+
+Please provide a comprehensive answer that synthesizes the statistical data (if available) with the specific case examples. Structure your response according to the format guidelines."""
+
+        if self.llm_client:
+            response_text = self._call_llm(system_prompt, user_message)
+        else:
+            response_text = self._generate_compound_fallback(cases, aggregations)
+
+        return ResponseResult(
+            response=response_text,
+            cases_found=len(cases),
+            query_type="compound",
+            sources=self._format_sources(cases)
+        )
+
+    def _format_aggregation_data(self, data: Dict[str, Any]) -> str:
+        """Format aggregation data for compound context."""
+        parts = []
+        total = data.get("total_cases", 0)
+        parts.append(f"Total cases: {total}")
+
+        for key, value in data.items():
+            if key == "total_cases":
+                continue
+            if isinstance(value, dict):
+                parts.append(f"\n{key.replace('_', ' ').title()}:")
+                sorted_items = sorted(value.items(), key=lambda x: -x[1])[:10]
+                for k, v in sorted_items:
+                    pct = (v / total * 100) if total > 0 else 0
+                    parts.append(f"  - {k}: {v} ({pct:.1f}%)")
+            else:
+                parts.append(f"{key}: {value}")
+
+        return "\n".join(parts)
+
+    def _build_compound_summary_context(self, cases: List[Dict[str, Any]]) -> str:
+        """Build context with summaries for compound queries."""
+        context_parts = []
+        for i, case in enumerate(cases, 1):
+            metadata = case.get("metadata", {})
+            date_str = metadata.get('created_at', '')[:10] if metadata.get('created_at') else 'N/A'
+            summary = case.get('summary', 'No summary')
+            step_purpose = case.get('_step_purpose', 'General')
+
+            # Truncate long summaries
+            if len(summary) > 300:
+                summary = summary[:297] + "..."
+
+            context_parts.append(f"""
+{i}. Case #{metadata.get('case_number', 'Unknown')} ({date_str}) [From: {step_purpose}]
+   Brand: {metadata.get('brand', 'Unknown')} | Theme: {metadata.get('theme', 'Unknown')} | Channel: {metadata.get('channel', 'Unknown')}
+   Summary: {summary}
+""")
+        return "\n".join(context_parts)
+
+    def _build_compound_detailed_context(self, cases: List[Dict[str, Any]]) -> str:
+        """Build context with full details for compound queries."""
+        context_parts = []
+        for case in cases:
+            metadata = case.get("metadata", {})
+            step_purpose = case.get('_step_purpose', 'Detailed Analysis')
+
+            context_parts.append(f"""
+=== Case #{metadata.get('case_number', 'Unknown')} ===
+[Purpose: {step_purpose}]
+Date: {metadata.get('created_at', 'Unknown')[:10] if metadata.get('created_at') else 'Unknown'}
+Brand: {metadata.get('brand', 'Unknown')}
+Channel: {metadata.get('channel', 'Unknown')}
+Theme: {metadata.get('theme', 'Unknown')}
+Outcome: {metadata.get('outcome', 'Unknown')}
+Subject: {metadata.get('subject', 'N/A')}
+
+Summary: {case.get('summary', 'No summary available')}
+
+Full Conversation:
+{metadata.get('full_conversation', 'No conversation available')}
+
+Description: {metadata.get('description', 'N/A')}
+""")
+        return "\n".join(context_parts)
+
+    def _generate_compound_fallback(
+        self,
+        cases: List[Dict[str, Any]],
+        aggregations: Dict[str, Dict[str, Any]]
+    ) -> str:
+        """Generate a basic compound response without LLM."""
+        parts = []
+
+        if aggregations:
+            parts.append("**Statistical Overview:**")
+            for purpose, data in aggregations.items():
+                total = data.get("total_cases", 0)
+                parts.append(f"\n{purpose}:")
+                parts.append(f"- Total cases: {total}")
+                for key, value in data.items():
+                    if isinstance(value, dict) and key != "total_cases":
+                        top_items = sorted(value.items(), key=lambda x: -x[1])[:5]
+                        for k, v in top_items:
+                            parts.append(f"  - {k}: {v}")
+
+        if cases:
+            parts.append(f"\n**Cases Found ({len(cases)} total):**")
+            for i, case in enumerate(cases[:10], 1):
+                metadata = case.get("metadata", {})
+                parts.append(f"\n{i}. Case #{metadata.get('case_number', 'Unknown')}")
+                parts.append(f"   Theme: {metadata.get('theme', 'Unknown')}")
+                summary = case.get('summary', '')[:150]
+                if summary:
+                    parts.append(f"   {summary}...")
+
+        if not parts:
+            return "No data found for your compound query."
+
+        return "\n".join(parts)

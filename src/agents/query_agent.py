@@ -8,7 +8,7 @@ aggregation, etc.) and creates an optimal search strategy.
 import json
 import re
 from dataclasses import dataclass, field, asdict
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime, timedelta
 
 
@@ -43,6 +43,69 @@ class QueryPlan:
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return asdict(self)
+
+
+@dataclass
+class SearchStep:
+    """
+    A single step in a compound search strategy.
+
+    Attributes:
+        step_type: Type of search (aggregation, broad_search, filtered_search, specific_case)
+        purpose: Description of what this step accomplishes
+        semantic_query: Query text for semantic search
+        result_count: Number of results to retrieve
+        detail_level: Level of detail needed (summary, full_conversation)
+        themes: List of themes to filter by
+        brands: List of brands to filter by
+        date_start: Start date filter (ISO format)
+        date_end: End date filter (ISO format)
+        case_numbers: Case numbers for specific lookups (from prior steps)
+        aggregation_type: Type of aggregation for aggregation steps
+        use_prior_results: Whether to derive filters from prior step results
+    """
+    step_type: str  # "aggregation", "broad_search", "filtered_search", "specific_case"
+    purpose: str  # Description: "Get theme distribution", "Find top anxiety cases"
+    semantic_query: Optional[str] = None
+    result_count: int = 10
+    detail_level: str = "summary"  # summary, full_conversation
+    themes: Optional[List[str]] = None
+    brands: Optional[List[str]] = None
+    date_start: Optional[str] = None
+    date_end: Optional[str] = None
+    case_numbers: Optional[List[int]] = None  # For specific lookups from prior steps
+    aggregation_type: Optional[str] = None
+    use_prior_results: bool = False  # Whether to derive filters from prior step
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return asdict(self)
+
+
+@dataclass
+class CompoundQueryPlan:
+    """
+    Multi-step search strategy for complex queries.
+
+    Attributes:
+        is_compound: Whether this is a compound (multi-step) plan
+        steps: Ordered list of SearchStep objects to execute
+        synthesis_strategy: How to synthesize results (hierarchical, comparative, timeline)
+        original_query: The original user query
+    """
+    is_compound: bool = False
+    steps: List[SearchStep] = field(default_factory=list)
+    synthesis_strategy: str = "hierarchical"  # "hierarchical", "comparative", "timeline"
+    original_query: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "is_compound": self.is_compound,
+            "steps": [s.to_dict() for s in self.steps],
+            "synthesis_strategy": self.synthesis_strategy,
+            "original_query": self.original_query
+        }
 
 
 class QueryAgent:
@@ -104,6 +167,67 @@ Output: {"query_type": "aggregation", "aggregation_type": "count_by_brand", "res
         "past week", "past month", "recent", "this week", "this month"
     ]
 
+    # Patterns that indicate a compound (multi-step) search strategy is needed
+    COMPOUND_INDICATORS = [
+        r"and\s+(show|give|provide|include|list).*examples?",
+        r"with\s+specific\s+cases?",
+        r"compare.*(?:and|vs\.?|versus)",
+        r"highlight.*(?:specific|challenging|interesting|notable)",
+        r"deep\s+dive",
+        r"drill\s+down",
+        r"changed?\s+over\s+time",
+        r"trend.*examples?",
+        r"breakdown.*details?",
+        r"overview.*and.*specific",
+        r"main\s+(?:themes?|topics?).*and.*(?:examples?|details?)",
+        r"analyze.*and.*(?:show|highlight)",
+        r"(?:statistics|stats).*and.*(?:examples?|cases?)",
+        r"both.*(?:overview|summary).*and.*(?:detail|specific)",
+    ]
+
+    COMPOUND_SYSTEM_PROMPT = """You are a search strategy planner for a customer service case database containing faith-based conversations.
+
+Given a complex query, break it into ordered search steps. Each step builds on prior results.
+
+Available step types:
+- aggregation: Get statistics (count_by_theme, count_by_brand, sentiment_distribution). Returns distributions.
+- broad_search: Get many case summaries (up to 50). Good for pattern finding.
+- filtered_search: Get few cases with full transcripts (up to 10). Good for detailed examples.
+- specific_case: Look up specific case numbers. Use when prior steps identify interesting cases.
+
+Output JSON:
+{
+  "is_compound": true,
+  "synthesis_strategy": "hierarchical|comparative|timeline",
+  "steps": [
+    {
+      "step_type": "aggregation|broad_search|filtered_search|specific_case",
+      "purpose": "Description of what this step accomplishes",
+      "semantic_query": "search query text or null",
+      "result_count": 10,
+      "detail_level": "summary|full_conversation",
+      "themes": ["theme1"] or null,
+      "brands": ["brand1"] or null,
+      "date_start": "YYYY-MM-DD" or null,
+      "date_end": "YYYY-MM-DD" or null,
+      "aggregation_type": "count_by_theme|count_by_brand|sentiment_distribution" or null,
+      "use_prior_results": false
+    }
+  ]
+}
+
+synthesis_strategy options:
+- "hierarchical": Overview first, then drill into details (use for "what are themes and give examples")
+- "comparative": Side-by-side analysis of different segments (use for "compare X and Y")
+- "timeline": Show changes over time periods (use for "how did X change over time")
+
+Guidelines:
+- Maximum 4 steps to avoid context overload
+- First step is usually aggregation or broad_search for overview
+- Later steps use filtered_search or specific_case for details
+- Use themes/brands/dates from prior steps when use_prior_results is true
+- result_count limits: broad_search max 50, filtered_search max 10, specific_case max 3"""
+
     def __init__(self, llm_client=None, provider: str = "anthropic"):
         """
         Initialize the Query Agent.
@@ -120,8 +244,9 @@ Output: {"query_type": "aggregation", "aggregation_type": "count_by_brand", "res
         query: str,
         available_themes: Optional[List[str]] = None,
         available_brands: Optional[List[str]] = None,
-        current_date: Optional[str] = None
-    ) -> QueryPlan:
+        current_date: Optional[str] = None,
+        enable_compound: bool = True
+    ) -> Union[QueryPlan, CompoundQueryPlan]:
         """
         Analyze a user query and generate a search plan.
 
@@ -130,12 +255,25 @@ Output: {"query_type": "aggregation", "aggregation_type": "count_by_brand", "res
             available_themes: List of available themes for filtering
             available_brands: List of available brands for filtering
             current_date: Current date for relative date calculations
+            enable_compound: Whether to allow compound (multi-step) search plans
 
         Returns:
-            QueryPlan with optimal search strategy
+            QueryPlan for simple queries, CompoundQueryPlan for complex queries
         """
         if not current_date:
             current_date = datetime.now().strftime("%Y-%m-%d")
+
+        # Check for compound query first (if enabled and LLM available)
+        if enable_compound and self.llm_client and self._needs_compound_strategy(query):
+            try:
+                compound_plan = self._create_compound_plan(
+                    query, available_themes, available_brands, current_date
+                )
+                if compound_plan and compound_plan.is_compound:
+                    return compound_plan
+            except Exception as e:
+                print(f"Warning: Compound plan creation failed: {e}")
+                # Fall through to simple plan
 
         # Fast path: Check for case number
         case_number = self._extract_case_number(query)
@@ -363,3 +501,115 @@ Analyze this query and output a JSON search plan."""
             result_count=15,
             detail_level="summary"
         )
+
+    def _needs_compound_strategy(self, query: str) -> bool:
+        """
+        Determine if a query requires a compound (multi-step) search strategy.
+
+        Args:
+            query: The user's natural language query
+
+        Returns:
+            True if compound strategy is needed, False otherwise
+        """
+        query_lower = query.lower()
+        return any(
+            re.search(pattern, query_lower)
+            for pattern in self.COMPOUND_INDICATORS
+        )
+
+    def _create_compound_plan(
+        self,
+        query: str,
+        available_themes: Optional[List[str]],
+        available_brands: Optional[List[str]],
+        current_date: str
+    ) -> CompoundQueryPlan:
+        """
+        Create a compound (multi-step) search plan using LLM.
+
+        Args:
+            query: The user's natural language query
+            available_themes: List of available themes for filtering
+            available_brands: List of available brands for filtering
+            current_date: Current date for relative date calculations
+
+        Returns:
+            CompoundQueryPlan with ordered search steps
+        """
+        context = f"""Available themes: {', '.join(available_themes) if available_themes else 'Not specified'}
+Available brands: {', '.join(available_brands) if available_brands else 'Not specified'}
+Current date: {current_date}
+
+User query: {query}
+
+Analyze this complex query and create a multi-step search plan. Output valid JSON only."""
+
+        if self.provider == "openai":
+            response = self.llm_client.chat.completions.create(
+                model="gpt-4o",
+                max_tokens=1000,
+                messages=[
+                    {"role": "system", "content": self.COMPOUND_SYSTEM_PROMPT},
+                    {"role": "user", "content": context}
+                ]
+            )
+            response_text = response.choices[0].message.content
+        else:
+            response = self.llm_client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=1000,
+                system=self.COMPOUND_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": context}]
+            )
+            response_text = response.content[0].text
+
+        # Parse JSON from response
+        try:
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            if json_match:
+                plan_dict = json.loads(json_match.group())
+
+                if not plan_dict.get("is_compound", False):
+                    # LLM decided simple plan is sufficient
+                    return CompoundQueryPlan(is_compound=False, original_query=query)
+
+                # Build SearchStep objects from the plan
+                steps = []
+                for step_dict in plan_dict.get("steps", []):
+                    # Handle relative dates
+                    step_date_start = step_dict.get("date_start")
+                    step_date_end = step_dict.get("date_end")
+                    if step_date_start and "<" in str(step_date_start):
+                        step_date_start, step_date_end = self._extract_date_range(query, current_date)
+
+                    step = SearchStep(
+                        step_type=step_dict.get("step_type", "broad_search"),
+                        purpose=step_dict.get("purpose", "Search"),
+                        semantic_query=step_dict.get("semantic_query"),
+                        result_count=min(step_dict.get("result_count", 10), 50),  # Cap at 50
+                        detail_level=step_dict.get("detail_level", "summary"),
+                        themes=step_dict.get("themes"),
+                        brands=step_dict.get("brands"),
+                        date_start=step_date_start,
+                        date_end=step_date_end,
+                        case_numbers=step_dict.get("case_numbers"),
+                        aggregation_type=step_dict.get("aggregation_type"),
+                        use_prior_results=step_dict.get("use_prior_results", False)
+                    )
+                    steps.append(step)
+
+                # Limit to 4 steps maximum
+                steps = steps[:4]
+
+                return CompoundQueryPlan(
+                    is_compound=True,
+                    steps=steps,
+                    synthesis_strategy=plan_dict.get("synthesis_strategy", "hierarchical"),
+                    original_query=query
+                )
+        except (json.JSONDecodeError, TypeError) as e:
+            print(f"Warning: Failed to parse compound plan: {e}")
+
+        # Fallback to non-compound plan
+        return CompoundQueryPlan(is_compound=False, original_query=query)

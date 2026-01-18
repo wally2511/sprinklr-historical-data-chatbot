@@ -62,6 +62,11 @@ class Config:
     MAX_CONTEXT_CASES_SPECIFIC: int = int(os.getenv("MAX_CONTEXT_CASES_SPECIFIC", "10"))
     THEME_EXTRACTION_METHOD: str = os.getenv("THEME_EXTRACTION_METHOD", "keyword")  # "keyword" or "llm"
 
+    # Compound Search Settings
+    ENABLE_COMPOUND_SEARCH: bool = os.getenv("ENABLE_COMPOUND_SEARCH", "true").lower() == "true"
+    MAX_COMPOUND_STEPS: int = int(os.getenv("MAX_COMPOUND_STEPS", "4"))
+    MAX_TOTAL_CASES_COMPOUND: int = int(os.getenv("MAX_TOTAL_CASES_COMPOUND", "50"))
+
     @classmethod
     def get_sprinklr_base_url(cls) -> str:
         """Get the Sprinklr API base URL for the configured environment."""

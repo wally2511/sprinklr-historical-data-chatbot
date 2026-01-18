@@ -6,44 +6,39 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 RAG chatbot that enables natural language queries against Sprinklr historical engagement data. Uses ChromaDB for vector storage with sentence-transformers embeddings, and Claude for response generation.
 
-## Current State & Pending Work
+## Current State & Implemented Features
 
-**Status**: Ready for multi-agent architecture implementation
+**Status**: Multi-agent architecture with compound search implemented
 
-**Pending Enhancement Plan**: `.claude/plans/curried-cuddling-wozniak.md`
+### Implemented Features
+- **Multi-Agent Architecture**: Query Agent, Response Agent, and Orchestrator for intelligent query processing
+- **Compound Search**: Multi-step search strategies for complex queries (e.g., "What are the main themes and show me examples?")
+- **Specific Case Lookup**: Query specific cases like "case #54123"
+- **Dynamic Context Size**: Adjusts results based on query type (1 for specific, 10 for filtered, 100 for broad)
+- **Aggregations**: Statistical queries like "most common questions in last 30 days"
 
-To continue implementation, tell Claude Code:
-```
-Continue implementing the plan in .claude/plans/curried-cuddling-wozniak.md
-```
-
-### Known Issues to Fix
-1. **Themes empty for live data**: `src/ingestion.py:270` hardcodes `"theme": ""` - needs theme extraction
-2. **No case number lookup**: Cannot query specific cases like "case #54123"
-3. **Fixed context size**: Always returns 10 cases regardless of query type
-4. **No aggregations**: Cannot answer "most common question in last 30 days"
-
-### Planned Multi-Agent Architecture
+### Multi-Agent Architecture
 ```
 User Query → Query Agent (analyze, plan) → Orchestrator → Response Agent
                                               ↓
                               [Specific Lookup | Semantic Search | Aggregation]
+                                              ↓
+                              Compound queries execute multiple steps
 ```
 
-**New files to create:**
-- `src/agents/query_agent.py` - Query analysis and planning
-- `src/agents/response_agent.py` - Context-aware response generation
-- `src/agents/orchestrator.py` - Agent coordination
-- `src/services/theme_extractor.py` - NLP theme extraction
+### Compound Search Strategies
+For complex queries, the system automatically detects and executes multi-step searches:
+- **Hierarchical**: Overview first, then drill into details (e.g., "themes and examples")
+- **Comparative**: Side-by-side analysis (e.g., "compare Brand1 and Brand2")
+- **Timeline**: Changes over time (e.g., "what changed between last month and this month")
 
-**Files to modify:**
-- `src/vector_store.py` - Add `get_by_case_number()`, `count_by_theme()`
-- `src/ingestion.py` - Integrate theme extraction (line 270)
-- `src/chatbot.py` - Add orchestrator integration
-- `src/config.py` - Multi-agent config options
+### Remaining Known Issues
+1. **Themes empty for live data**: `src/ingestion.py:270` hardcodes `"theme": ""` - needs theme extraction
 
-### Commit Strategy
-Commit after each phase: vector store → theme extraction → query agent → response agent → integration → tests
+### Agent Files
+- `src/agents/query_agent.py` - Query analysis, compound detection, and planning
+- `src/agents/response_agent.py` - Context-aware response generation with compound synthesis
+- `src/agents/orchestrator.py` - Agent coordination and multi-step execution
 
 ## Commands
 
@@ -115,6 +110,10 @@ Data Sources
 ### Configuration (`config.py`)
 
 - `USE_MOCK_DATA`: Toggle between mock and live Sprinklr data
+- `USE_MULTI_AGENT`: Enable multi-agent architecture (default: true)
+- `ENABLE_COMPOUND_SEARCH`: Enable compound multi-step search strategies (default: true)
+- `MAX_COMPOUND_STEPS`: Maximum steps in compound search (default: 4)
+- `MAX_TOTAL_CASES_COMPOUND`: Maximum total cases in compound results (default: 50)
 - Rate limits: 1000 calls/hour, 10 calls/second (enforced by `RateLimiter` class)
 - Models: `claude-sonnet-4-20250514` for chat, `all-MiniLM-L6-v2` for embeddings
 
