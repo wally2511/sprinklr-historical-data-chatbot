@@ -33,6 +33,7 @@ RAG chatbot that enables natural language queries against Sprinklr historical en
 ### Implemented Features
 - **Multi-Agent Architecture**: Query Agent, Response Agent, and Orchestrator for intelligent query processing
 - **Compound Search**: Multi-step search strategies for complex queries (e.g., "What are the main themes and show me examples?")
+- **Hybrid Ingestion**: API for case metadata + SQLite for messages (bypasses rate-limited message API)
 - **Specific Case Lookup**: Query specific cases like "case #54123"
 - **Dynamic Context Size**: Adjusts results based on query type (1 for specific, 10 for filtered, 100 for broad)
 - **Aggregations**: Statistical queries like "most common questions in last 30 days"
@@ -52,8 +53,24 @@ For complex queries, the system automatically detects and executes multi-step se
 - **Comparative**: Side-by-side analysis (e.g., "compare Brand1 and Brand2")
 - **Timeline**: Changes over time (e.g., "what changed between last month and this month")
 
+### Hybrid Ingestion Architecture
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Hybrid Ingestion Pipeline                 │
+├─────────────────────────────────────────────────────────────┤
+│  1. Fetch cases from API (search_cases_v2) - no rate limit  │
+│  2. For each case:                                           │
+│     ├─ PRIMARY: Lookup messages from SQLite (instant)       │
+│     └─ FALLBACK: API bulk fetch (rate limited)              │
+│  3. Generate AI summary + theme extraction                   │
+│  4. Store in ChromaDB                                        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Message Database:** Pre-converted from Sprinklr XLSX exports to SQLite for instant lookups (314K+ messages, 149K+ cases).
+
 ### Remaining Known Issues
-1. **Themes empty for live data**: `src/ingestion.py:270` hardcodes `"theme": ""` - needs theme extraction
+None currently.
 
 ### Agent Files
 - `src/agents/query_agent.py` - Query analysis, compound detection, and planning
@@ -85,8 +102,18 @@ python scripts/ingest_data.py
 # With parameters
 python scripts/ingest_data.py --cases 100 --days 60
 
-# Live Sprinklr data
+# Live Sprinklr data (API only - slow due to rate limits)
 python scripts/ingest_data.py --live --days 30 --max-cases 500
+
+# RECOMMENDED: Hybrid ingestion (API cases + SQLite messages)
+# Step 1: Convert XLSX exports to SQLite (one-time)
+python scripts/xlsx_to_sqlite.py
+
+# Step 2: Run hybrid ingestion
+python scripts/ingest_data.py --live --xlsx-messages --max-cases 1000 --days 365
+
+# Hybrid with API fallback disabled (only use DB messages)
+python scripts/ingest_data.py --live --xlsx-messages --max-cases 1000 --skip-api-fallback
 
 # Append mode (don't clear existing)
 python scripts/ingest_data.py --no-clear
@@ -119,12 +146,19 @@ Vector Store (vector_store.py) - ChromaDB wrapper
     ↓
 Data Sources
     ├─ SprinklrClient (sprinklr_client.py) - API with rate limiting
+    ├─ MessageStore (services/message_store.py) - SQLite message lookups
     └─ Mock Data Generator (mock_data.py) - Testing data
 ```
 
 ### Key Data Flow
 
-1. **Ingestion** (`ingestion.py`): Fetch cases → Get messages → Generate AI summary → Batch store in ChromaDB
+1. **Ingestion** (`ingestion.py`):
+   - Search cases via v2 API (newest first, cursor pagination)
+   - **Hybrid mode**: Lookup messages from SQLite DB first, fallback to API
+   - **API-only mode**: Fetch message IDs per case → Bulk fetch messages
+   - Generate AI summary (OpenAI or Anthropic based on `LLM_PROVIDER`)
+   - Extract themes using keyword matching
+   - Batch store in ChromaDB with embeddings
 2. **Query** (`chatbot.py`): User query → Vector search (top 10) → Build context → Claude response → Return with sources
 
 ### Configuration (`config.py`)
@@ -134,6 +168,7 @@ Data Sources
 - `ENABLE_COMPOUND_SEARCH`: Enable compound multi-step search strategies (default: true)
 - `MAX_COMPOUND_STEPS`: Maximum steps in compound search (default: 4)
 - `MAX_TOTAL_CASES_COMPOUND`: Maximum total cases in compound results (default: 50)
+- `LLM_PROVIDER`: LLM for ingestion summaries - `anthropic` (default) or `openai`
 - Rate limits: 1000 calls/hour, 10 calls/second (enforced by `RateLimiter` class)
 - Models: `claude-sonnet-4-20250514` for chat, `all-MiniLM-L6-v2` for embeddings
 
@@ -143,7 +178,21 @@ Data Sources
 
 See `docs/SPRINKLR_API_REFERENCE.md` for complete endpoint documentation.
 
-**Rate Limiting:** 1000/hour, 10/second. Use `scripts/resume_ingestion.py` after 403 "Developer Over Rate" errors.
+**Primary Endpoint (v2 Search API):**
+- `POST /api/v2/search/CASE` with filter-based queries
+- Cursor-based pagination (cursor expires after 5 minutes)
+- Sorted by `createdTime` DESC (newest first)
+- Used by `fetch_cases_with_messages()` for ingestion
+
+**Rate Limiting:**
+- 1000 calls/hour, 10 calls/second
+- Auto-retry on 403/429 with 5-minute waits (up to 3 retries)
+- Use `scripts/resume_ingestion.py` for manual recovery if needed
+
+**LLM Provider Support:**
+- Set `LLM_PROVIDER=openai` or `LLM_PROVIDER=anthropic` in `.env`
+- Ingestion summaries use the configured provider
+- Chat responses always use Anthropic Claude
 
 ### Vector Store Metadata
 ChromaDB stores: `case_number`, `brand`, `channel`, `theme`, `outcome`, `sentiment`, `language`, `country`, `created_at`, `full_conversation` (truncated to 5000 chars), `description`, `subject`

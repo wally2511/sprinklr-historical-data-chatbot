@@ -6,12 +6,11 @@ A RAG-powered chatbot that allows community managers and product teams to query 
 
 **Multi-Agent Architecture Complete:**
 - Connected to Sprinklr API with 473,602+ cases accessible
-- **100 cases ingested** with full conversation transcripts and extracted themes
+- Uses v2 Search API with cursor-based pagination (newest cases first)
 - Chatbot running at http://localhost:8505
 - Brands available: Brand1, Radio Christian Voice, Sharek Online
-- Themes: faith, prayer, grief, anxiety, doubt, relationships, forgiveness, bible_study, evangelism, and more
-- Date range: August 2025 to January 2026
 - Multi-agent system handles specific case lookups, broad searches, filtered queries, and aggregations
+- Supports both OpenAI and Anthropic for summary generation during ingestion
 
 ## Features
 
@@ -25,8 +24,8 @@ A RAG-powered chatbot that allows community managers and product teams to query 
 - **Case Summaries**: AI-generated summaries for better pattern recognition
 - **Date Range Filtering**: Analyze specific time periods
 - **Brand Filtering**: Filter results by specific brands
-- **Live Sprinklr Integration**: Full API integration with v1 Case Search and message retrieval
-- **Dual LLM Support**: Works with both Anthropic Claude and OpenAI GPT-4o
+- **Live Sprinklr Integration**: Full API integration with v2 Case Search, cursor pagination, and bulk message retrieval
+- **Dual LLM Support**: Anthropic Claude for chat responses, configurable OpenAI or Anthropic for ingestion summaries
 
 ## Architecture
 
@@ -212,18 +211,20 @@ sprinklr-chatbot/
 
 The client implements the following Sprinklr API endpoints:
 
-### Case Search (v1) - Primary
-```
-POST https://api3.sprinklr.com/{env}/api/v1/case/search
-```
-- Proper pagination with `start` and `rows`
-- Date filtering with `sinceDate`/`untilDate` (milliseconds)
-
-### Case Search (v2) - Alternative
+### Case Search (v2) - Primary
 ```
 POST https://api3.sprinklr.com/{env}/api/v2/search/CASE
 ```
-- Pagination with `page.start` (1-indexed) and `page.size`
+- Filter-based queries with `createdTime` sorting (newest first)
+- Cursor-based pagination (cursor expires after 5 minutes)
+- Returns cases sorted by creation date descending
+
+### Case Search (v1) - Legacy
+```
+POST https://api3.sprinklr.com/{env}/api/v1/case/search
+```
+- Offset-based pagination with `start` and `rows`
+- Date filtering with `sinceDate`/`untilDate` (milliseconds)
 
 ### Message Retrieval (Bulk)
 ```
@@ -247,7 +248,10 @@ When using live Sprinklr data, be aware of rate limits:
 - **Hourly limit:** ~1000 API calls per hour (API returns 403 "Developer Over Rate")
 - **Per-second limit:** 10 API calls per second
 
-The client includes automatic rate limiting to stay within these bounds.
+The client includes:
+- Automatic rate limiting to stay within these bounds
+- Auto-retry on 403/429 errors with 5-minute waits (up to 3 retries)
+- Unified error handling for all API endpoints
 
 **API calls per case (with bulk fetch):**
 - 1 search call to find cases (paginated)

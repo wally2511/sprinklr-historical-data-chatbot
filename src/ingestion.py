@@ -13,6 +13,7 @@ from vector_store import VectorStore
 from sprinklr_client import SprinklrClient
 from mock_data import generate_mock_cases
 from services.theme_extractor import ThemeExtractor, extract_theme_keywords
+from services.message_store import MessageStore, find_message_database
 
 
 class IngestionPipeline:
@@ -235,10 +236,12 @@ Summary:"""
         processed_cases = []
         case_count = 0
 
-        for case in client.fetch_cases_with_messages(
+        for case in client.fetch_cases_with_messages_batched(
             start_date=start_date,
             end_date=end_date,
-            max_cases=max_cases
+            max_cases=max_cases,
+            case_batch_size=50,  # Batch 50 cases before bulk message fetch
+            message_bulk_limit=500  # Max messages per bulk fetch request
         ):
             case_count += 1
 
@@ -315,6 +318,209 @@ Summary:"""
 
         total = self.vector_store.get_case_count()
         print(f"Successfully ingested {total} cases.")
+        return total
+
+    def ingest_hybrid(
+        self,
+        db_path: Optional[str] = None,
+        days_back: int = 365,
+        max_cases: Optional[int] = None,
+        clear_existing: bool = True,
+        skip_api_fallback: bool = False
+    ) -> int:
+        """
+        Ingest data using API for cases and SQLite database for messages.
+
+        This hybrid approach:
+        1. Fetches case metadata from Sprinklr API (not rate-limited)
+        2. Loads message content from SQLite database (converted from XLSX)
+        3. Optionally falls back to API bulk fetch if messages not in database
+
+        Args:
+            db_path: Path to SQLite message database.
+                    If None, auto-discovers from data/messages.db
+            days_back: Number of days of historical data to fetch
+            max_cases: Maximum number of cases to fetch (None for all)
+            clear_existing: Whether to clear existing data
+            skip_api_fallback: If True, skip cases not found in message DB
+
+        Returns:
+            Number of cases ingested
+        """
+        if not config.validate_sprinklr_config():
+            raise ValueError(
+                "Sprinklr API credentials not configured. "
+                "Please set SPRINKLR_API_KEY and SPRINKLR_ACCESS_TOKEN in .env"
+            )
+
+        # Find message database
+        if not db_path:
+            db_path = find_message_database()
+            if not db_path:
+                raise FileNotFoundError(
+                    "Message database not found. Run 'python scripts/xlsx_to_sqlite.py' first "
+                    "to convert XLSX files to SQLite database."
+                )
+
+        print(f"Initializing hybrid ingestion...")
+        print(f"  Message DB: {db_path}")
+        print(f"  Days back: {days_back}")
+        print(f"  Max cases: {max_cases or 'unlimited'}")
+        print(f"  Skip API fallback: {skip_api_fallback}")
+        print()
+
+        # Load message store from SQLite
+        message_store = MessageStore(db_path)
+
+        if clear_existing:
+            print("Clearing existing data...")
+            self.vector_store.clear()
+
+        # Initialize Sprinklr client
+        client = SprinklrClient()
+
+        # Calculate date range
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days_back)
+
+        # Fetch and process cases
+        processed_cases = []
+        case_count = 0
+        xlsx_hits = 0
+        api_fallbacks = 0
+        no_messages = 0
+
+        # Use search_cases_v2 to get cases (with pagination)
+        cursor = None
+
+        while True:
+            if max_cases and case_count >= max_cases:
+                break
+
+            # Fetch batch of cases
+            search_result = client.search_cases_v2(
+                start_date=start_date,
+                end_date=end_date,
+                size=100,
+                cursor=cursor
+            )
+
+            cases = search_result.get("data", [])
+            cursor = search_result.get("cursor")
+
+            if not cases:
+                break
+
+            for case in cases:
+                if max_cases and case_count >= max_cases:
+                    break
+
+                case_id = case.get("id")
+                if not case_id:
+                    continue
+
+                # Extract metadata using client helper
+                metadata = SprinklrClient.extract_case_metadata(case)
+                case_number = metadata.get("case_number")
+                brand = metadata.get("brand", "Unknown")
+
+                case_count += 1
+                print(f"Processing case {case_count}: #{case_number} ({brand})...", end=" ")
+
+                # Try to get messages from XLSX store first
+                messages = []
+                if case_number and message_store.has_messages_for_case(case_number):
+                    messages = message_store.get_messages_for_case(case_number)
+                    xlsx_hits += 1
+                    print(f"[DB: {len(messages)} messages]")
+                else:
+                    if skip_api_fallback:
+                        # Skip this case - not in message DB
+                        no_messages += 1
+                        print(f"[Skipped - not in DB]")
+                        continue
+                    else:
+                        # Fall back to API bulk fetch
+                        try:
+                            api_messages = client.get_case_messages(case_id)
+                            for msg in api_messages:
+                                content = msg.get("content", {})
+                                text = content.get("text", "") if isinstance(content, dict) else ""
+                                is_brand_post = msg.get("brandPost", False)
+                                sender_profile = msg.get("senderProfile", {})
+                                sender_name = sender_profile.get("name", "Unknown")
+
+                                if text:
+                                    messages.append({
+                                        "role": "agent" if is_brand_post else "user",
+                                        "content": text,
+                                        "sender": sender_name
+                                    })
+
+                            if messages:
+                                api_fallbacks += 1
+                                print(f"[API: {len(messages)} messages]")
+                            else:
+                                no_messages += 1
+                                print("[No messages]")
+                        except Exception as e:
+                            no_messages += 1
+                            print(f"[Error: {e}]")
+
+                # Format conversation for theme extraction
+                conversation_text = self._format_conversation(messages)
+
+                # Extract theme from conversation content
+                extracted_theme = self.theme_extractor.extract_theme(conversation_text) if conversation_text else "general"
+
+                # Map data to our format
+                formatted_case = {
+                    "id": metadata.get("case_id", ""),
+                    "case_number": metadata.get("case_number"),
+                    "messages": messages,
+                    "description": metadata.get("description", ""),
+                    "subject": metadata.get("subject", ""),
+                    "created_at": datetime.fromtimestamp(
+                        metadata.get("created_time", 0) / 1000
+                    ).isoformat() if metadata.get("created_time") else "",
+                    "channel": metadata.get("channel", ""),
+                    "brand": metadata.get("brand", ""),
+                    "theme": extracted_theme,
+                    "outcome": metadata.get("status", ""),
+                    "topics": [],
+                    "sentiment": metadata.get("sentiment", 0),
+                    "language": metadata.get("language", ""),
+                    "country": metadata.get("country", ""),
+                }
+
+                processed = self.process_case(formatted_case)
+                processed_cases.append(processed)
+
+                # Batch insert every 50 cases
+                if len(processed_cases) >= 50:
+                    print(f"\nStoring batch of {len(processed_cases)} cases...")
+                    self.vector_store.add_cases_batch(processed_cases)
+                    processed_cases = []
+
+            # Stop if no cursor (no more results)
+            if not cursor:
+                break
+
+        # Insert remaining cases
+        if processed_cases:
+            print(f"\nStoring final batch of {len(processed_cases)} cases...")
+            self.vector_store.add_cases_batch(processed_cases)
+
+        # Close message store
+        message_store.close()
+
+        total = self.vector_store.get_case_count()
+        print(f"\n=== Hybrid Ingestion Complete ===")
+        print(f"Total cases ingested: {total}")
+        print(f"Messages from DB: {xlsx_hits} cases")
+        print(f"Messages from API: {api_fallbacks} cases")
+        print(f"Skipped/No messages: {no_messages} cases")
+
         return total
 
     def get_stats(self) -> Dict[str, Any]:
