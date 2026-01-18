@@ -25,6 +25,11 @@ class Config:
     # Claude API Configuration
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
 
+    # LLM Provider Configuration
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "anthropic")  # "anthropic" or "openai"
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o")
+
     # Application Settings
     USE_MOCK_DATA: bool = os.getenv("USE_MOCK_DATA", "true").lower() == "true"
     CHROMA_DB_PATH: str = os.getenv("CHROMA_DB_PATH", "./data/chroma_db")
@@ -71,6 +76,11 @@ class Config:
     def validate_anthropic_config(cls) -> bool:
         """Check if Anthropic API key is configured."""
         return bool(cls.ANTHROPIC_API_KEY)
+
+    @classmethod
+    def validate_openai_config(cls) -> bool:
+        """Check if OpenAI API key is configured."""
+        return bool(cls.OPENAI_API_KEY)
 
     @classmethod
     def ensure_data_directory(cls) -> Path:

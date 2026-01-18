@@ -2,6 +2,7 @@
 
 # AI/LLM
 anthropic>=0.18.0         # Claude API
+openai>=1.0.0             # OpenAI API
 
 # Vector Database
 chromadb>=0.4.0           # Vector database for semantic search

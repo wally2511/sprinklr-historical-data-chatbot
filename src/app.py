@@ -44,6 +44,8 @@ def init_session_state():
         st.session_state.messages = []
     if "chatbot" not in st.session_state:
         st.session_state.chatbot = None
+    if "llm_provider" not in st.session_state:
+        st.session_state.llm_provider = config.LLM_PROVIDER
 
 
 def load_chatbot():
@@ -74,6 +76,33 @@ def main():
             st.info("📊 Using mock data for testing")
         else:
             st.success("🔗 Connected to Sprinklr API")
+
+        st.divider()
+
+        # LLM Provider selector
+        st.subheader("LLM Provider")
+        providers = ["Anthropic (Claude)", "OpenAI (ChatGPT)"]
+        provider_index = 0 if st.session_state.llm_provider == "anthropic" else 1
+        selected_provider = st.selectbox(
+            "Provider",
+            providers,
+            index=provider_index,
+            key="provider_select"
+        )
+        new_provider = "anthropic" if "Anthropic" in selected_provider else "openai"
+
+        # Handle provider change
+        if new_provider != st.session_state.llm_provider:
+            st.session_state.llm_provider = new_provider
+            if st.session_state.chatbot:
+                try:
+                    st.session_state.chatbot.set_provider(new_provider)
+                    st.session_state.messages = []  # Clear chat history on provider change
+                    st.success(f"Switched to {selected_provider}")
+                except ValueError as e:
+                    st.error(str(e))
+                    # Revert to previous provider
+                    st.session_state.llm_provider = "anthropic" if new_provider == "openai" else "openai"
 
         st.divider()
 
@@ -146,8 +175,9 @@ def main():
 
     # Main chat area
     if not chatbot:
+        provider_name = "OPENAI_API_KEY" if st.session_state.llm_provider == "openai" else "ANTHROPIC_API_KEY"
         st.error(
-            "Chatbot could not be initialized. Please check your ANTHROPIC_API_KEY "
+            f"Chatbot could not be initialized. Please check your {provider_name} "
             "in the .env file."
         )
         st.stop()

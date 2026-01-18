@@ -40,29 +40,25 @@ class IngestionPipeline:
         return "\n".join(lines)
 
     def _generate_summary_with_claude(self, conversation: str) -> str:
-        """
-        Generate a summary of the conversation using Claude.
-
-        Args:
-            conversation: Formatted conversation text
-
-        Returns:
-            AI-generated summary
-        """
+        """Generate a summary optimized for semantic search retrieval."""
         if not self.claude_client:
             return self._generate_simple_summary(conversation)
 
         try:
             response = self.claude_client.messages.create(
                 model="claude-sonnet-4-20250514",
-                max_tokens=300,
+                max_tokens=150,
                 messages=[
                     {
                         "role": "user",
-                        "content": f"""Summarize this conversation in 2-3 sentences. Focus on:
-1. The main topic or question the user asked about
-2. Key themes (faith, prayer, doubt, relationships, etc.)
-3. The outcome or resolution
+                        "content": f"""Write a 1-2 sentence summary of this conversation for semantic search retrieval.
+
+Focus on:
+- What the user asked or discussed
+- The nature of the interaction (question, complaint, request, etc.)
+- Any resolution or response provided
+
+Do NOT include channel names, brand names, or case numbers - just summarize the conversation content.
 
 Conversation:
 {conversation}
@@ -78,53 +74,30 @@ Summary:"""
             return self._generate_simple_summary(conversation)
 
     def _generate_simple_summary(self, conversation: str) -> str:
-        """Generate a simple summary without AI (fallback)."""
-        # Extract first user message as main topic
-        lines = conversation.split("\n")
-        user_message = ""
-        for line in lines:
-            if line.startswith("USER:"):
-                user_message = line.replace("USER:", "").strip()
-                break
+        """Generate a simple summary from conversation content (fallback)."""
+        if not conversation or not conversation.strip():
+            return "No conversation content available."
 
-        if user_message:
-            return f"User asked: {user_message[:200]}..."
-        return "Conversation about faith-related topics."
+        # Extract all message content (strip role prefixes)
+        content_parts = []
+        for line in conversation.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            # Remove role prefix like "USER (Name):" or "AGENT:"
+            if ":" in line:
+                content = line.split(":", 1)[1].strip()
+                if content and len(content) > 2:
+                    content_parts.append(content)
 
-    def _build_searchable_text(self, case: Dict[str, Any], full_conversation: str) -> str:
-        """
-        Build searchable text from all available case fields.
+        if not content_parts:
+            return "Brief interaction with minimal content."
 
-        Combines multiple fields to create a rich text for semantic search,
-        even when individual fields are short (like social media comments).
-        """
-        parts = []
-
-        # Add channel context
-        channel = case.get("channel", "")
-        if channel:
-            parts.append(f"This is a {channel} interaction.")
-
-        # Add brand context
-        brand = case.get("brand", "")
-        if brand:
-            parts.append(f"Brand: {brand}.")
-
-        # Add subject if meaningful
-        subject = case.get("subject", "")
-        if subject and len(subject) > 10:
-            parts.append(f"Subject: {subject}")
-
-        # Add description/message content
-        description = case.get("description", "")
-        if description:
-            parts.append(f"Message content: {description}")
-
-        # Add conversation if available
-        if full_conversation.strip():
-            parts.append(f"Conversation: {full_conversation}")
-
-        return " ".join(parts)
+        # Combine and truncate
+        combined = " | ".join(content_parts)
+        if len(combined) > 200:
+            return combined[:197] + "..."
+        return combined
 
     def process_case(self, case: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -140,16 +113,11 @@ Summary:"""
         messages = case.get("messages", [])
         full_conversation = self._format_conversation(messages)
 
-        # Build searchable text combining all fields
-        searchable_text = self._build_searchable_text(case, full_conversation)
-
-        # Generate summary based on available content
-        if full_conversation.strip() and len(full_conversation) > 100:
-            # Rich conversation - use AI summary
+        # Generate summary based on conversation content only
+        if full_conversation.strip() and len(full_conversation) > 50:
             summary = self._generate_summary_with_claude(full_conversation)
         else:
-            # Short content (social media comments) - use the searchable text as summary
-            summary = searchable_text
+            summary = self._generate_simple_summary(full_conversation)
 
         return {
             "id": case.get("id", ""),

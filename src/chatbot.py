@@ -6,6 +6,7 @@ Uses semantic search to find relevant cases and Claude to generate responses.
 
 from typing import List, Dict, Any, Optional
 import anthropic
+import openai
 
 from config import config
 from vector_store import VectorStore
@@ -31,19 +32,75 @@ The cases below are from real conversations and contain summaries and full conve
 class Chatbot:
     """RAG-powered chatbot for querying engagement data."""
 
-    def __init__(self):
-        """Initialize the chatbot."""
+    def __init__(self, provider: str = None):
+        """Initialize the chatbot with specified LLM provider."""
         self.vector_store = VectorStore()
-        self.claude_client = None
+        self.llm_client = None
         self.conversation_history: List[Dict[str, str]] = []
+        self.provider = provider or config.LLM_PROVIDER
+        self._init_llm_client()
 
-        if config.validate_anthropic_config():
-            self.claude_client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-        else:
-            raise ValueError(
-                "Anthropic API key not configured. "
-                "Please set ANTHROPIC_API_KEY in .env"
+    def _init_llm_client(self):
+        """Initialize the LLM client based on the current provider."""
+        if self.provider == "openai":
+            if config.validate_openai_config():
+                self.llm_client = openai.OpenAI(api_key=config.OPENAI_API_KEY)
+            else:
+                raise ValueError(
+                    "OpenAI API key not configured. "
+                    "Please set OPENAI_API_KEY in .env"
+                )
+        else:  # anthropic (default)
+            if config.validate_anthropic_config():
+                self.llm_client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+            else:
+                raise ValueError(
+                    "Anthropic API key not configured. "
+                    "Please set ANTHROPIC_API_KEY in .env"
+                )
+
+    def _call_llm(self, system_prompt: str, messages: List[Dict[str, str]]) -> str:
+        """
+        Call the LLM with the given prompt and messages.
+
+        Args:
+            system_prompt: System prompt for the LLM
+            messages: List of conversation messages
+
+        Returns:
+            LLM response text
+        """
+        if self.provider == "openai":
+            # OpenAI format: system message + user/assistant messages
+            openai_messages = [{"role": "system", "content": system_prompt}]
+            openai_messages.extend(messages)
+            response = self.llm_client.chat.completions.create(
+                model=config.OPENAI_MODEL,
+                max_tokens=1500,
+                messages=openai_messages
             )
+            return response.choices[0].message.content
+        else:
+            # Anthropic format: separate system parameter
+            response = self.llm_client.messages.create(
+                model=config.CLAUDE_MODEL,
+                max_tokens=1500,
+                system=system_prompt,
+                messages=messages
+            )
+            return response.content[0].text
+
+    def set_provider(self, provider: str):
+        """
+        Switch to a different LLM provider.
+
+        Args:
+            provider: "anthropic" or "openai"
+        """
+        if provider != self.provider:
+            self.provider = provider
+            self._init_llm_client()
+            self.clear_history()
 
     def _build_context(self, cases: List[Dict[str, Any]]) -> str:
         """
@@ -62,7 +119,7 @@ class Chatbot:
         for i, case in enumerate(cases, 1):
             metadata = case.get("metadata", {})
             context_parts.append(f"""
---- Case {i} (ID: {case['id']}) ---
+--- Case {i} (#{metadata.get('case_number', 'Unknown')}) ---
 Date: {metadata.get('created_at', 'Unknown')}
 Brand: {metadata.get('brand', 'Unknown')}
 Channel: {metadata.get('channel', 'Unknown')}
@@ -163,16 +220,9 @@ Please provide a helpful, specific answer based on the cases above. If the cases
         # Add to conversation history
         self.conversation_history.append({"role": "user", "content": user_message})
 
-        # Generate response with Claude
+        # Generate response with LLM
         try:
-            response = self.claude_client.messages.create(
-                model=config.CLAUDE_MODEL,
-                max_tokens=1500,
-                system=SYSTEM_PROMPT,
-                messages=self.conversation_history
-            )
-
-            assistant_message = response.content[0].text
+            assistant_message = self._call_llm(SYSTEM_PROMPT, self.conversation_history)
 
             # Add response to history
             self.conversation_history.append({
@@ -192,13 +242,13 @@ Please provide a helpful, specific answer based on the cases above. If the cases
             if include_sources:
                 result["sources"] = [
                     {
-                        "id": case["id"],
+                        "id": f"#{case.get('metadata', {}).get('case_number', 'Unknown')}",
                         "summary": case.get("summary", ""),
                         "brand": case.get("metadata", {}).get("brand", ""),
                         "theme": case.get("metadata", {}).get("theme", ""),
                         "date": case.get("metadata", {}).get("created_at", ""),
                     }
-                    for case in cases[:5]  # Include top 5 sources
+                    for case in cases  # Include all sources sent to LLM
                 ]
 
             return result
@@ -231,15 +281,18 @@ Please provide a helpful, specific answer based on the cases above. If the cases
         return self.vector_store.get_case_count()
 
 
-def create_chatbot() -> Optional[Chatbot]:
+def create_chatbot(provider: str = None) -> Optional[Chatbot]:
     """
     Create a chatbot instance, handling configuration errors gracefully.
+
+    Args:
+        provider: LLM provider ("anthropic" or "openai"), defaults to config setting
 
     Returns:
         Chatbot instance or None if configuration is missing
     """
     try:
-        return Chatbot()
+        return Chatbot(provider=provider)
     except ValueError as e:
         print(f"Warning: {e}")
         return None
