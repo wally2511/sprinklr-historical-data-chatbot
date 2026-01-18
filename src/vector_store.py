@@ -268,3 +268,156 @@ class VectorStore:
             return None, None
 
         return min(dates), max(dates)
+
+    def get_by_case_number(self, case_number: int) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve a case by its case number using metadata filtering.
+
+        Args:
+            case_number: The case number to look up
+
+        Returns:
+            Case dictionary or None if not found
+        """
+        results = self.collection.get(
+            where={"case_number": {"$eq": case_number}},
+            include=["documents", "metadatas"]
+        )
+
+        if results and results["ids"]:
+            return {
+                "id": results["ids"][0],
+                "summary": results["documents"][0] if results["documents"] else "",
+                "metadata": results["metadatas"][0] if results["metadatas"] else {}
+            }
+        return None
+
+    def get_by_case_numbers(self, case_numbers: List[int]) -> List[Dict[str, Any]]:
+        """
+        Batch retrieve multiple cases by case numbers.
+
+        Args:
+            case_numbers: List of case numbers to look up
+
+        Returns:
+            List of case dictionaries
+        """
+        if not case_numbers:
+            return []
+
+        results = self.collection.get(
+            where={"case_number": {"$in": case_numbers}},
+            include=["documents", "metadatas"]
+        )
+
+        cases = []
+        if results and results["ids"]:
+            for i, case_id in enumerate(results["ids"]):
+                cases.append({
+                    "id": case_id,
+                    "summary": results["documents"][i] if results["documents"] else "",
+                    "metadata": results["metadatas"][i] if results["metadatas"] else {}
+                })
+        return cases
+
+    def count_by_theme(self) -> Dict[str, int]:
+        """
+        Count cases grouped by theme.
+
+        Returns:
+            Dictionary mapping theme names to case counts
+        """
+        results = self.collection.get(include=["metadatas"])
+        counts: Dict[str, int] = {}
+
+        if results and results["metadatas"]:
+            for metadata in results["metadatas"]:
+                theme = metadata.get("theme") or "Unknown"
+                counts[theme] = counts.get(theme, 0) + 1
+
+        return dict(sorted(counts.items(), key=lambda x: -x[1]))
+
+    def count_by_brand(self) -> Dict[str, int]:
+        """
+        Count cases grouped by brand.
+
+        Returns:
+            Dictionary mapping brand names to case counts
+        """
+        results = self.collection.get(include=["metadatas"])
+        counts: Dict[str, int] = {}
+
+        if results and results["metadatas"]:
+            for metadata in results["metadatas"]:
+                brand = metadata.get("brand") or "Unknown"
+                counts[brand] = counts.get(brand, 0) + 1
+
+        return dict(sorted(counts.items(), key=lambda x: -x[1]))
+
+    def count_by_field(self, field: str) -> Dict[str, int]:
+        """
+        Count cases grouped by any metadata field.
+
+        Args:
+            field: The metadata field to group by
+
+        Returns:
+            Dictionary mapping field values to case counts
+        """
+        results = self.collection.get(include=["metadatas"])
+        counts: Dict[str, int] = {}
+
+        if results and results["metadatas"]:
+            for metadata in results["metadatas"]:
+                value = metadata.get(field) or "Unknown"
+                # Handle numeric fields
+                if isinstance(value, (int, float)):
+                    value = str(value)
+                counts[value] = counts.get(value, 0) + 1
+
+        return dict(sorted(counts.items(), key=lambda x: -x[1]))
+
+    def get_all_cases(
+        self,
+        limit: Optional[int] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get all cases with optional filtering.
+
+        Args:
+            limit: Maximum number of cases to return
+            start_date: Optional start date filter (ISO format)
+            end_date: Optional end date filter (ISO format)
+
+        Returns:
+            List of case dictionaries
+        """
+        results = self.collection.get(include=["documents", "metadatas"])
+
+        cases = []
+        if results and results["ids"]:
+            for i, case_id in enumerate(results["ids"]):
+                case = {
+                    "id": case_id,
+                    "summary": results["documents"][i] if results["documents"] else "",
+                    "metadata": results["metadatas"][i] if results["metadatas"] else {}
+                }
+
+                # Apply date filtering
+                if start_date or end_date:
+                    case_date = case["metadata"].get("created_at", "")
+                    if case_date:
+                        case_date_only = case_date[:10] if len(case_date) >= 10 else case_date
+                        if start_date and case_date_only < start_date[:10]:
+                            continue
+                        if end_date and case_date_only > end_date[:10]:
+                            continue
+
+                cases.append(case)
+
+                if limit and len(cases) >= limit:
+                    break
+
+        return cases
