@@ -2,6 +2,26 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## ⚠️ CRITICAL: Sprinklr API is READ-ONLY
+
+**This project has READ-ONLY access to Sprinklr. NEVER implement or call any endpoint that:**
+- Creates data (POST to create endpoints)
+- Updates data (PUT/PATCH endpoints)
+- Deletes data (DELETE endpoints)
+
+**Only use GET requests and POST requests that search/fetch data.**
+
+## Sprinklr API Reference
+
+**ALWAYS consult `docs/SPRINKLR_API_REFERENCE.md` when working with Sprinklr API.**
+
+This file contains:
+- All permitted READ-ONLY endpoints with request/response schemas
+- Filter types and entity-specific filter keys for Search API
+- Message ID format and field mappings
+- Rate limits, error codes, and troubleshooting
+- Project-specific custom field IDs
+
 ## Project Overview
 
 RAG chatbot that enables natural language queries against Sprinklr historical engagement data. Uses ChromaDB for vector storage with sentence-transformers embeddings, and Claude for response generation.
@@ -119,13 +139,11 @@ Data Sources
 
 ## Key Implementation Details
 
-### Sprinklr API Endpoints
-- Case search: `POST /api/v1/case/search` (paginated)
-- Message IDs: `GET /api/v2/case/associated-messages?id={case_id}`
-- Bulk messages: `POST /api/v2/message/bulk-fetch`
+### Sprinklr API
 
-### Rate Limiting
-Sprinklr enforces hourly limits. Use `scripts/resume_ingestion.py` to continue after 403 "Developer Over Rate" errors.
+See `docs/SPRINKLR_API_REFERENCE.md` for complete endpoint documentation.
+
+**Rate Limiting:** 1000/hour, 10/second. Use `scripts/resume_ingestion.py` after 403 "Developer Over Rate" errors.
 
 ### Vector Store Metadata
 ChromaDB stores: `case_number`, `brand`, `channel`, `theme`, `outcome`, `sentiment`, `language`, `country`, `created_at`, `full_conversation` (truncated to 5000 chars), `description`, `subject`

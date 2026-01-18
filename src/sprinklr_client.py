@@ -63,14 +63,21 @@ class SprinklrClient:
             calls_per_hour=config.RATE_LIMIT_CALLS_PER_HOUR
         )
 
-        # Setup session with retries
+        # Setup session with retries (includes 403 for rate limit errors)
         self.session = requests.Session()
         retries = Retry(
-            total=3,
-            backoff_factor=0.5,
+            total=5,
+            backoff_factor=1.0,
             status_forcelist=[429, 500, 502, 503, 504]
         )
         self.session.mount("https://", HTTPAdapter(max_retries=retries))
+
+        # Rate limit retry settings
+        self.rate_limit_max_retries = 3
+        self.rate_limit_wait_seconds = 300  # 5 minutes between retries
+
+        # API3 base URL (for search/bulk endpoints)
+        self.api3_base_url = self.base_url.replace("api2.sprinklr.com", "api3.sprinklr.com")
 
     def _get_headers(self) -> Dict[str, str]:
         """Get request headers with authentication."""
@@ -86,7 +93,8 @@ class SprinklrClient:
         method: str,
         endpoint: str,
         params: Optional[Dict] = None,
-        json_data: Optional[Dict] = None
+        json_data: Optional[Dict] = None,
+        _retry_count: int = 0
     ) -> Dict[str, Any]:
         """
         Make an API request with rate limiting and error handling.
@@ -96,6 +104,7 @@ class SprinklrClient:
             endpoint: API endpoint path
             params: Query parameters
             json_data: JSON body data
+            _retry_count: Internal retry counter for rate limit errors
 
         Returns:
             Response data as dictionary
@@ -122,8 +131,99 @@ class SprinklrClient:
             if e.response.status_code == 401:
                 raise AuthenticationError("Invalid or expired access token")
             elif e.response.status_code == 403:
-                raise AuthorizationError("Insufficient permissions")
+                # Check if this is a rate limit error (Developer Over Rate)
+                try:
+                    error_body = e.response.json()
+                    error_msg = error_body.get("message", "")
+                except:
+                    error_msg = e.response.text
+
+                if "rate" in error_msg.lower() or "over" in error_msg.lower():
+                    if _retry_count < self.rate_limit_max_retries:
+                        wait_time = self.rate_limit_wait_seconds
+                        print(f"Rate limit hit (403). Waiting {wait_time // 60} minutes before retry {_retry_count + 1}/{self.rate_limit_max_retries}...")
+                        time.sleep(wait_time)
+                        return self._make_request(method, endpoint, params, json_data, _retry_count + 1)
+                    else:
+                        raise RateLimitError(f"Rate limit exceeded after {self.rate_limit_max_retries} retries")
+                else:
+                    raise AuthorizationError("Insufficient permissions")
             elif e.response.status_code == 429:
+                raise RateLimitError("Rate limit exceeded")
+            else:
+                raise SprinklrAPIError(f"API error: {e}")
+
+        except requests.exceptions.RequestException as e:
+            raise SprinklrAPIError(f"Request failed: {e}")
+
+    def _make_api3_request(
+        self,
+        method: str,
+        endpoint: str,
+        params: Optional[Dict] = None,
+        json_data: Optional[Any] = None,
+        _retry_count: int = 0
+    ) -> Dict[str, Any]:
+        """
+        Make an API request to api3.sprinklr.com with rate limiting and error handling.
+
+        Used for search and bulk endpoints.
+
+        Args:
+            method: HTTP method (GET, POST, etc.)
+            endpoint: API endpoint path
+            params: Query parameters
+            json_data: JSON body data (can be dict or list)
+            _retry_count: Internal retry counter for rate limit errors
+
+        Returns:
+            Response data as dictionary
+        """
+        self.rate_limiter.wait_if_needed()
+
+        url = f"{self.api3_base_url}{endpoint}"
+        headers = self._get_headers()
+
+        try:
+            response = self.session.request(
+                method=method,
+                url=url,
+                headers=headers,
+                params=params,
+                json=json_data,
+                timeout=30
+            )
+
+            response.raise_for_status()
+            return response.json()
+
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 401:
+                raise AuthenticationError("Invalid or expired access token")
+            elif e.response.status_code == 403:
+                # Check if this is a rate limit error (Developer Over Rate)
+                try:
+                    error_body = e.response.json()
+                    error_msg = error_body.get("message", "")
+                except:
+                    error_msg = e.response.text
+
+                if "rate" in error_msg.lower() or "over" in error_msg.lower():
+                    if _retry_count < self.rate_limit_max_retries:
+                        wait_time = self.rate_limit_wait_seconds
+                        print(f"Rate limit hit (403). Waiting {wait_time // 60} minutes before retry {_retry_count + 1}/{self.rate_limit_max_retries}...")
+                        time.sleep(wait_time)
+                        return self._make_api3_request(method, endpoint, params, json_data, _retry_count + 1)
+                    else:
+                        raise RateLimitError(f"Rate limit exceeded after {self.rate_limit_max_retries} retries")
+                else:
+                    raise AuthorizationError(f"Insufficient permissions: {error_msg}")
+            elif e.response.status_code == 429:
+                if _retry_count < self.rate_limit_max_retries:
+                    wait_time = self.rate_limit_wait_seconds
+                    print(f"Rate limit hit (429). Waiting {wait_time // 60} minutes before retry {_retry_count + 1}/{self.rate_limit_max_retries}...")
+                    time.sleep(wait_time)
+                    return self._make_api3_request(method, endpoint, params, json_data, _retry_count + 1)
                 raise RateLimitError("Rate limit exceeded")
             else:
                 raise SprinklrAPIError(f"API error: {e}")
@@ -147,85 +247,77 @@ class SprinklrClient:
         self,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
-        start: int = 0,
-        size: int = 100
+        size: int = 100,
+        cursor: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Search for cases using Sprinklr v2 search API with proper pagination.
+        Search for cases using Sprinklr v2 search API.
 
-        Uses POST /api/v2/search/CASE endpoint on api3.sprinklr.com.
-        Supports date filtering, pagination with start/size, and total count.
+        Uses POST /api/v2/search/CASE endpoint for initial request,
+        then GET /api/v2/search/CASE?id={cursor} for pagination.
+
+        Per API docs, v2 uses:
+        - filter: AND/OR conditions with epoch timestamps
+        - sorts: [{key: "createdTime", order: "DESC"}]
+        - page: {size: 100} for initial request
+        - cursor-based pagination for subsequent requests
 
         Args:
             start_date: Filter cases created after this date
             end_date: Filter cases created before this date
-            start: Pagination offset (default 0)
             size: Number of results per page (default 100)
+            cursor: Cursor from previous response for pagination
 
         Returns:
             Search results with cases, cursor, and total count
         """
-        # v2 search uses api3.sprinklr.com
-        v2_base_url = self.base_url.replace("api2.sprinklr.com", "api3.sprinklr.com")
+        # If we have a cursor, use GET for pagination (cursor expires after 5 min)
+        if cursor:
+            cursor_id = cursor.replace("id=", "") if cursor.startswith("id=") else cursor
+            response = self._make_api3_request("GET", f"/api/v2/search/CASE?id={cursor_id}")
+        else:
+            # Build filter conditions
+            filters = [{"type": "EQUALS", "key": "deleted", "values": [False]}]
 
-        # Build request body according to documentation
-        # Note: page is lowercase and start is 1-indexed
-        body = {
-            "filter": {
-                "type": "EQUALS",
-                "key": "deleted",
-                "values": [False]
-            },
-            "page": {
-                "start": start + 1,  # 1-indexed
-                "size": size
-            },
-            "includeCount": True
-        }
-
-        # Add time filter if dates specified (yyyy-MM format)
-        if start_date or end_date:
-            body["timeFilter"] = {
-                "key": "createdTime"
-            }
+            # Add date range filters using epoch timestamps
             if start_date:
-                body["timeFilter"]["since"] = start_date.strftime("%Y-%m")
+                filters.append({
+                    "type": "GTE",
+                    "key": "createdTime",
+                    "values": [int(start_date.timestamp() * 1000)]
+                })
             if end_date:
-                body["timeFilter"]["until"] = end_date.strftime("%Y-%m")
+                filters.append({
+                    "type": "LTE",
+                    "key": "createdTime",
+                    "values": [int(end_date.timestamp() * 1000)]
+                })
 
-        # Make request
-        url = f"{v2_base_url}/api/v2/search/CASE"
-        headers = self._get_headers()
-
-        try:
-            self.rate_limiter.wait_if_needed()
-            response = self.session.request(
-                method="POST",
-                url=url,
-                headers=headers,
-                json=body,
-                timeout=30
-            )
-            response.raise_for_status()
-            resp_data = response.json()
-
-            # Extract data from response
-            data = resp_data.get("data", {})
-            results = data.get("results", [])
-            cursor = data.get("cursor")
-            total_count = data.get("totalCount", 0)
-
-            return {
-                "data": results,
-                "cursor": cursor,
-                "totalCount": total_count,
-                "errors": resp_data.get("errors", [])
+            # Build request body per API reference
+            body = {
+                "filter": {
+                    "type": "AND",
+                    "filters": filters
+                },
+                "sorts": [{"key": "createdTime", "order": "DESC"}],
+                "page": {"size": size},
+                "includeCount": True
             }
 
-        except requests.exceptions.HTTPError as e:
-            raise SprinklrAPIError(f"API error: {e}")
-        except requests.exceptions.RequestException as e:
-            raise SprinklrAPIError(f"Request failed: {e}")
+            response = self._make_api3_request("POST", "/api/v2/search/CASE", json_data=body)
+
+        # Extract data from response
+        data = response.get("data", {})
+        results = data.get("results", [])
+        next_cursor = data.get("cursor")
+        total_count = data.get("totalCount", 0)
+
+        return {
+            "data": results,
+            "cursor": next_cursor,
+            "totalCount": total_count,
+            "errors": response.get("errors", [])
+        }
 
     def search_cases_v1(
         self,
@@ -233,7 +325,8 @@ class SprinklrClient:
         end_date: Optional[datetime] = None,
         start: int = 0,
         rows: int = 100,
-        query: str = ""
+        query: str = "",
+        _retry_count: int = 0
     ) -> Dict[str, Any]:
         """
         Search for cases using Sprinklr v1 search API.
@@ -267,7 +360,8 @@ class SprinklrClient:
             "paginationInfo": {
                 "start": start,
                 "rows": rows,
-                "sortKey": "caseModificationTime"
+                "sortKey": "caseCreationTime",
+                "sortDirection": "DESC"
             }
         }
 
@@ -328,6 +422,22 @@ class SprinklrClient:
             }
 
         except requests.exceptions.HTTPError as e:
+            # Handle 403 rate limit errors with retry
+            if e.response.status_code == 403:
+                try:
+                    error_body = e.response.json()
+                    error_msg = error_body.get("message", "")
+                except:
+                    error_msg = e.response.text
+
+                if "rate" in error_msg.lower() or "over" in error_msg.lower():
+                    if _retry_count < self.rate_limit_max_retries:
+                        wait_time = self.rate_limit_wait_seconds
+                        print(f"Rate limit hit (403). Waiting {wait_time // 60} minutes before retry {_retry_count + 1}/{self.rate_limit_max_retries}...")
+                        time.sleep(wait_time)
+                        return self.search_cases_v1(start_date, end_date, start, rows, query, _retry_count + 1)
+                    else:
+                        raise RateLimitError(f"Rate limit exceeded after {self.rate_limit_max_retries} retries")
             raise SprinklrAPIError(f"API error: {e}")
         except requests.exceptions.RequestException as e:
             raise SprinklrAPIError(f"Request failed: {e}")
@@ -397,8 +507,7 @@ class SprinklrClient:
         """
         Fetch all message IDs associated with a case.
 
-        Uses the correct Sprinklr API endpoint:
-        GET /api/v2/case/associated-messages?id={case_id}
+        Uses GET /api/v2/case/associated-messages?id={case_id} on api3.
 
         Args:
             case_id: The case ID
@@ -406,7 +515,7 @@ class SprinklrClient:
         Returns:
             List of message ID strings
         """
-        response = self._make_request(
+        response = self._make_api3_request(
             "GET",
             f"/api/v2/case/associated-messages?id={case_id}"
         )
@@ -441,10 +550,8 @@ class SprinklrClient:
         """
         Fetch multiple messages in bulk using the bulk fetch API.
 
-        Uses the Sprinklr bulk message fetch API:
-        POST https://api3.sprinklr.com/{env}/api/v2/message/bulk-fetch
-
-        For large message lists, chunks requests to avoid API limits.
+        Uses POST /api/v2/message/bulk-fetch on api3.
+        Includes rate limit retry handling.
 
         Args:
             message_ids: List of message ID strings
@@ -456,11 +563,6 @@ class SprinklrClient:
         if not message_ids:
             return []
 
-        # Bulk fetch API uses api3.sprinklr.com
-        api3_base_url = self.base_url.replace("api2.sprinklr.com", "api3.sprinklr.com")
-        url = f"{api3_base_url}/api/v2/message/bulk-fetch"
-        headers = self._get_headers()
-
         all_messages = []
 
         # Process in chunks to avoid API limits
@@ -468,23 +570,16 @@ class SprinklrClient:
             chunk = message_ids[i:i + chunk_size]
 
             try:
-                self.rate_limiter.wait_if_needed()
-                response = self.session.request(
-                    method="POST",
-                    url=url,
-                    headers=headers,
-                    json=chunk,
-                    timeout=30
+                response = self._make_api3_request(
+                    "POST",
+                    "/api/v2/message/bulk-fetch",
+                    json_data=chunk
                 )
-                response.raise_for_status()
-                data = response.json()
-                messages = data.get("data", [])
+                messages = response.get("data", [])
                 all_messages.extend(messages)
-            except requests.exceptions.HTTPError as e:
+            except SprinklrAPIError as e:
                 print(f"Warning: Bulk message fetch failed for chunk: {e}")
                 # Continue with other chunks
-            except requests.exceptions.RequestException as e:
-                print(f"Warning: Bulk message fetch request error: {e}")
 
         return all_messages
 
@@ -519,6 +614,8 @@ class SprinklrClient:
         """
         Fetch a case by its case number.
 
+        Uses GET /api/v2/case/case-numbers on api3.
+
         Args:
             case_number: The case number (e.g., 478117)
 
@@ -526,7 +623,7 @@ class SprinklrClient:
             Case dictionary or None if not found
         """
         try:
-            response = self._make_request(
+            response = self._make_api3_request(
                 "GET",
                 f"/api/v2/case/case-numbers?case-number={case_number}"
             )
@@ -583,9 +680,10 @@ class SprinklrClient:
         max_cases: Optional[int] = None
     ) -> Generator[Dict[str, Any], None, None]:
         """
-        Fetch cases with their messages using the v1 search API.
+        Fetch cases with their messages using the v2 search API.
 
-        Uses the v1 search API which supports proper pagination and date filtering.
+        Uses cursor-based pagination for efficient traversal.
+        Sorts by createdTime DESC to get newest cases first.
 
         Args:
             start_date: Filter cases created after this date
@@ -595,9 +693,8 @@ class SprinklrClient:
         Yields:
             Case dictionaries with messages included
         """
-        rows_per_page = 100
         cases_fetched = 0
-        start_offset = 0
+        cursor = None
         seen_ids = set()
 
         while True:
@@ -605,17 +702,17 @@ class SprinklrClient:
             if max_cases and cases_fetched >= max_cases:
                 break
 
-            # Search for cases using v1 API
-            search_result = self.search_cases_v1(
+            # Search for cases using v2 API with cursor pagination
+            search_result = self.search_cases_v2(
                 start_date=start_date,
                 end_date=end_date,
-                start=start_offset,
-                rows=rows_per_page
+                size=100,
+                cursor=cursor
             )
 
             cases = search_result.get("data", [])
-            total_hits = search_result.get("totalHits", 0)
-            has_more = search_result.get("hasMore", False)
+            cursor = search_result.get("cursor")
+            total_count = search_result.get("totalCount", 0)
 
             if not cases:
                 break
@@ -642,24 +739,21 @@ class SprinklrClient:
                     yield case
                     cases_fetched += 1
 
-            # Move to next page
-            start_offset += rows_per_page
-
-            # Stop if no more results
-            if not has_more or start_offset >= total_hits:
+            # Stop if no cursor (no more results)
+            if not cursor:
                 break
 
     def test_connection(self) -> bool:
         """
-        Test the API connection.
+        Test the API connection using v2 search API.
 
         Returns:
             True if connection is successful
         """
         try:
             # Try to search for one case to verify credentials
-            self.search_cases(page_size=1)
-            return True
+            result = self.search_cases_v2(size=1)
+            return len(result.get("data", [])) > 0 or result.get("totalCount", 0) >= 0
         except Exception:
             return False
 

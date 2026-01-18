@@ -7,7 +7,6 @@ and storing in the vector database.
 
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
-import anthropic
 
 from config import config
 from vector_store import VectorStore
@@ -22,14 +21,20 @@ class IngestionPipeline:
     def __init__(self):
         """Initialize the ingestion pipeline."""
         self.vector_store = VectorStore()
-        self.claude_client = None
+        self.llm_client = None
+        self.llm_provider = config.LLM_PROVIDER
 
-        if config.validate_anthropic_config():
-            self.claude_client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+        # Initialize LLM client based on provider setting
+        if self.llm_provider == "openai" and config.validate_openai_config():
+            import openai
+            self.llm_client = openai.OpenAI(api_key=config.OPENAI_API_KEY)
+        elif config.validate_anthropic_config():
+            import anthropic
+            self.llm_client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
         # Initialize theme extractor (uses keyword-based extraction by default)
         self.theme_extractor = ThemeExtractor(
-            llm_client=self.claude_client,
+            llm_client=self.llm_client if self.llm_provider == "anthropic" else None,
             method="keyword"  # Use "llm" for more accurate but slower extraction
         )
 
@@ -46,19 +51,12 @@ class IngestionPipeline:
                 lines.append(f"{role}: {content}")
         return "\n".join(lines)
 
-    def _generate_summary_with_claude(self, conversation: str) -> str:
+    def _generate_summary_with_llm(self, conversation: str) -> str:
         """Generate a summary optimized for semantic search retrieval."""
-        if not self.claude_client:
+        if not self.llm_client:
             return self._generate_simple_summary(conversation)
 
-        try:
-            response = self.claude_client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=150,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": f"""Write a 1-2 sentence summary of this conversation for semantic search retrieval.
+        prompt = f"""Write a 1-2 sentence summary of this conversation for semantic search retrieval.
 
 Focus on:
 - What the user asked or discussed
@@ -71,13 +69,26 @@ Conversation:
 {conversation}
 
 Summary:"""
-                    }
-                ]
-            )
-            return response.content[0].text.strip()
+
+        try:
+            if self.llm_provider == "openai":
+                response = self.llm_client.chat.completions.create(
+                    model=config.OPENAI_MODEL,
+                    max_tokens=150,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                return response.choices[0].message.content.strip()
+            else:
+                # Anthropic/Claude
+                response = self.llm_client.messages.create(
+                    model=config.CLAUDE_MODEL,
+                    max_tokens=150,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                return response.content[0].text.strip()
 
         except Exception as e:
-            print(f"Warning: Claude API error, using simple summary: {e}")
+            print(f"Warning: LLM API error, using simple summary: {e}")
             return self._generate_simple_summary(conversation)
 
     def _generate_simple_summary(self, conversation: str) -> str:
@@ -122,7 +133,7 @@ Summary:"""
 
         # Generate summary based on conversation content only
         if full_conversation.strip() and len(full_conversation) > 50:
-            summary = self._generate_summary_with_claude(full_conversation)
+            summary = self._generate_summary_with_llm(full_conversation)
         else:
             summary = self._generate_simple_summary(full_conversation)
 
