@@ -6,6 +6,45 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 RAG chatbot that enables natural language queries against Sprinklr historical engagement data. Uses ChromaDB for vector storage with sentence-transformers embeddings, and Claude for response generation.
 
+## Current State & Pending Work
+
+**Status**: Ready for multi-agent architecture implementation
+
+**Pending Enhancement Plan**: `.claude/plans/curried-cuddling-wozniak.md`
+
+To continue implementation, tell Claude Code:
+```
+Continue implementing the plan in .claude/plans/curried-cuddling-wozniak.md
+```
+
+### Known Issues to Fix
+1. **Themes empty for live data**: `src/ingestion.py:270` hardcodes `"theme": ""` - needs theme extraction
+2. **No case number lookup**: Cannot query specific cases like "case #54123"
+3. **Fixed context size**: Always returns 10 cases regardless of query type
+4. **No aggregations**: Cannot answer "most common question in last 30 days"
+
+### Planned Multi-Agent Architecture
+```
+User Query → Query Agent (analyze, plan) → Orchestrator → Response Agent
+                                              ↓
+                              [Specific Lookup | Semantic Search | Aggregation]
+```
+
+**New files to create:**
+- `src/agents/query_agent.py` - Query analysis and planning
+- `src/agents/response_agent.py` - Context-aware response generation
+- `src/agents/orchestrator.py` - Agent coordination
+- `src/services/theme_extractor.py` - NLP theme extraction
+
+**Files to modify:**
+- `src/vector_store.py` - Add `get_by_case_number()`, `count_by_theme()`
+- `src/ingestion.py` - Integrate theme extraction (line 270)
+- `src/chatbot.py` - Add orchestrator integration
+- `src/config.py` - Multi-agent config options
+
+### Commit Strategy
+Commit after each phase: vector store → theme extraction → query agent → response agent → integration → tests
+
 ## Commands
 
 ### Setup
