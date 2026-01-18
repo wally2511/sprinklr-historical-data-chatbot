@@ -743,6 +743,138 @@ class SprinklrClient:
             if not cursor:
                 break
 
+    def fetch_cases_with_messages_batched(
+        self,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        max_cases: Optional[int] = None,
+        case_batch_size: int = 50,
+        message_bulk_limit: int = 500
+    ) -> Generator[Dict[str, Any], None, None]:
+        """
+        Fetch cases with messages using batched message fetching for efficiency.
+
+        Instead of fetching messages per-case (2 API calls per case), this method:
+        1. Collects message IDs for a batch of cases
+        2. Fetches ALL messages in one bulk request
+        3. Associates messages back to their cases
+
+        This reduces API calls from 2N to N+1 for N cases.
+
+        Args:
+            start_date: Filter cases created after this date
+            end_date: Filter cases created before this date
+            max_cases: Maximum number of cases to fetch
+            case_batch_size: Number of cases to batch before bulk message fetch
+            message_bulk_limit: Max messages per bulk fetch request
+
+        Yields:
+            Case dictionaries with messages included
+        """
+        cases_fetched = 0
+        cursor = None
+        seen_ids = set()
+        case_batch = []
+
+        while True:
+            # Check if we've hit the max
+            if max_cases and cases_fetched >= max_cases:
+                break
+
+            # Search for cases using v2 API with cursor pagination
+            search_result = self.search_cases_v2(
+                start_date=start_date,
+                end_date=end_date,
+                size=100,
+                cursor=cursor
+            )
+
+            cases = search_result.get("data", [])
+            cursor = search_result.get("cursor")
+
+            if not cases:
+                # Process any remaining cases in batch
+                if case_batch:
+                    yield from self._process_case_batch(case_batch, message_bulk_limit)
+                break
+
+            for case in cases:
+                if max_cases and cases_fetched >= max_cases:
+                    break
+
+                case_id = case.get("id")
+                if case_id:
+                    # Skip duplicates
+                    if case_id in seen_ids:
+                        continue
+                    seen_ids.add(case_id)
+
+                    case_batch.append(case)
+                    cases_fetched += 1
+
+                    # Process batch when full
+                    if len(case_batch) >= case_batch_size:
+                        yield from self._process_case_batch(case_batch, message_bulk_limit)
+                        case_batch = []
+
+            # Stop if no cursor (no more results)
+            if not cursor:
+                # Process any remaining cases
+                if case_batch:
+                    yield from self._process_case_batch(case_batch, message_bulk_limit)
+                break
+
+    def _process_case_batch(
+        self,
+        cases: List[Dict[str, Any]],
+        message_bulk_limit: int = 500
+    ) -> Generator[Dict[str, Any], None, None]:
+        """
+        Process a batch of cases by fetching all messages in bulk.
+
+        Args:
+            cases: List of case dictionaries
+            message_bulk_limit: Max messages per bulk fetch
+
+        Yields:
+            Cases with messages attached
+        """
+        if not cases:
+            return
+
+        # Step 1: Collect message IDs for all cases in batch
+        case_message_ids = {}  # case_id -> [message_ids]
+        all_message_ids = []
+
+        for case in cases:
+            case_id = case.get("id")
+            case_num = case.get("caseNumber", "unknown")
+            try:
+                message_ids = self.get_case_associated_message_ids(case_id)
+                case_message_ids[case_id] = message_ids
+                all_message_ids.extend(message_ids)
+            except SprinklrAPIError as e:
+                print(f"Warning: Could not fetch message IDs for case #{case_num}: {e}")
+                case_message_ids[case_id] = []
+
+        # Step 2: Bulk fetch ALL messages at once
+        all_messages = []
+        if all_message_ids:
+            try:
+                all_messages = self.get_messages_bulk(all_message_ids, chunk_size=message_bulk_limit)
+            except SprinklrAPIError as e:
+                print(f"Warning: Bulk message fetch failed: {e}")
+
+        # Step 3: Create message lookup by ID
+        message_lookup = {msg.get("messageId"): msg for msg in all_messages}
+
+        # Step 4: Associate messages with cases and yield
+        for case in cases:
+            case_id = case.get("id")
+            message_ids = case_message_ids.get(case_id, [])
+            case["messages"] = [message_lookup.get(mid) for mid in message_ids if message_lookup.get(mid)]
+            yield case
+
     def test_connection(self) -> bool:
         """
         Test the API connection using v2 search API.
