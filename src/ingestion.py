@@ -13,6 +13,7 @@ from config import config
 from vector_store import VectorStore
 from sprinklr_client import SprinklrClient
 from mock_data import generate_mock_cases
+from services.theme_extractor import ThemeExtractor, extract_theme_keywords
 
 
 class IngestionPipeline:
@@ -25,6 +26,12 @@ class IngestionPipeline:
 
         if config.validate_anthropic_config():
             self.claude_client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+
+        # Initialize theme extractor (uses keyword-based extraction by default)
+        self.theme_extractor = ThemeExtractor(
+            llm_client=self.claude_client,
+            method="keyword"  # Use "llm" for more accurate but slower extraction
+        )
 
     def _format_conversation(self, messages: List[Dict[str, Any]]) -> str:
         """Format messages into a readable conversation string."""
@@ -255,6 +262,12 @@ Summary:"""
                         "sender": sender_name
                     })
 
+            # Format conversation for theme extraction
+            conversation_text = self._format_conversation(messages)
+
+            # Extract theme from conversation content
+            extracted_theme = self.theme_extractor.extract_theme(conversation_text) if conversation_text else "general"
+
             # Map Sprinklr data to our format
             formatted_case = {
                 "id": metadata.get("case_id", ""),
@@ -267,9 +280,9 @@ Summary:"""
                 ).isoformat() if metadata.get("created_time") else "",
                 "channel": metadata.get("channel", ""),
                 "brand": metadata.get("brand", ""),
-                "theme": "",  # Would need NLP to extract
+                "theme": extracted_theme,
                 "outcome": metadata.get("status", ""),
-                "topics": [],  # Would need NLP to extract
+                "topics": [],  # Could add topic extraction later
                 "sentiment": metadata.get("sentiment", 0),
                 "language": metadata.get("language", ""),
                 "country": metadata.get("country", ""),
