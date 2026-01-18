@@ -143,7 +143,7 @@ The multi-agent system can be configured via environment variables:
 |----------|---------|-------------|
 | `USE_MULTI_AGENT` | `true` | Enable/disable multi-agent architecture |
 | `MAX_CONTEXT_CASES_BROAD` | `50` | Max cases for broad/aggregation queries |
-| `MAX_CONTEXT_CASES_SPECIFIC` | `5` | Max cases for specific lookups |
+| `MAX_CONTEXT_CASES_SPECIFIC` | `10` | Max cases for specific lookups |
 | `THEME_EXTRACTION_METHOD` | `keyword` | Theme extraction method (`keyword` or `llm`) |
 
 ### Sprinklr API Setup

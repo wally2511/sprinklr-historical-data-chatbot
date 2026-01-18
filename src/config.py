@@ -59,7 +59,7 @@ class Config:
     # Multi-Agent Settings
     USE_MULTI_AGENT: bool = os.getenv("USE_MULTI_AGENT", "true").lower() == "true"
     MAX_CONTEXT_CASES_BROAD: int = int(os.getenv("MAX_CONTEXT_CASES_BROAD", "50"))
-    MAX_CONTEXT_CASES_SPECIFIC: int = int(os.getenv("MAX_CONTEXT_CASES_SPECIFIC", "5"))
+    MAX_CONTEXT_CASES_SPECIFIC: int = int(os.getenv("MAX_CONTEXT_CASES_SPECIFIC", "10"))
     THEME_EXTRACTION_METHOD: str = os.getenv("THEME_EXTRACTION_METHOD", "keyword")  # "keyword" or "llm"
 
     @classmethod
