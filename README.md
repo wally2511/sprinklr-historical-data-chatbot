@@ -4,13 +4,15 @@ A RAG-powered chatbot that allows community managers and product teams to query 
 
 ## Current Status
 
-**Multi-Agent Architecture Complete:**
+**Multi-Agent Architecture with Hybrid Ingestion:**
 - Connected to Sprinklr API with 473,602+ cases accessible
+- **Hybrid ingestion**: API for case metadata + SQLite for messages (bypasses rate limits)
 - Uses v2 Search API with cursor-based pagination (newest cases first)
-- Chatbot running at http://localhost:8505
-- Brands available: Brand1, Radio Christian Voice, Sharek Online
+- Chatbot running at http://localhost:8508
+- Brands available: Brand1, Brand2, Radio Christian Voice, Sharek Online
 - Multi-agent system handles specific case lookups, broad searches, filtered queries, and aggregations
 - Supports both OpenAI and Anthropic for summary generation during ingestion
+- SQLite message database: 314K+ messages from 149K+ cases
 
 ## Features
 
@@ -25,6 +27,7 @@ A RAG-powered chatbot that allows community managers and product teams to query 
 - **Date Range Filtering**: Analyze specific time periods
 - **Brand Filtering**: Filter results by specific brands
 - **Live Sprinklr Integration**: Full API integration with v2 Case Search, cursor pagination, and bulk message retrieval
+- **Hybrid Ingestion**: API for case metadata + SQLite for message content (99%+ faster than API-only)
 - **Dual LLM Support**: Anthropic Claude for chat responses, configurable OpenAI or Anthropic for ingestion summaries
 
 ## Architecture
@@ -108,8 +111,15 @@ cp .env.example .env
 # With mock data (default)
 python scripts/ingest_data.py
 
-# With live Sprinklr data (requires API credentials)
-python scripts/ingest_data.py --live --days 30
+# RECOMMENDED: Hybrid ingestion (API cases + SQLite messages)
+# Step 1: Convert Sprinklr XLSX exports to SQLite (one-time)
+python scripts/xlsx_to_sqlite.py
+
+# Step 2: Run hybrid ingestion (fast - no message API rate limits)
+python scripts/ingest_data.py --live --xlsx-messages --max-cases 10000 --days 365
+
+# API-only mode (slower - subject to rate limits)
+python scripts/ingest_data.py --live --days 30 --max-cases 500
 ```
 
 ### 4. Run the Chatbot
@@ -182,8 +192,9 @@ sprinklr-chatbot/
 │   ├── __init__.py
 │   ├── config.py           # Configuration management
 │   ├── sprinklr_client.py  # Sprinklr API wrapper (v1 + v2 search, message retrieval)
+│   ├── xlsx_parser.py      # Parse Sprinklr XLSX message exports
 │   ├── mock_data.py        # Sample data for testing
-│   ├── ingestion.py        # Data ingestion pipeline with theme extraction
+│   ├── ingestion.py        # Data ingestion pipeline with hybrid mode
 │   ├── vector_store.py     # ChromaDB operations + aggregations
 │   ├── chatbot.py          # RAG chatbot with multi-agent support
 │   ├── app.py              # Streamlit interface
@@ -194,14 +205,19 @@ sprinklr-chatbot/
 │   │   └── orchestrator.py     # Agent coordination
 │   └── services/           # Shared services
 │       ├── __init__.py
-│       └── theme_extractor.py  # Keyword-based theme extraction
+│       ├── theme_extractor.py  # Keyword-based theme extraction
+│       └── message_store.py    # SQLite message lookups
 ├── scripts/
-│   ├── ingest_data.py      # CLI for data ingestion
+│   ├── ingest_data.py      # CLI for data ingestion (supports hybrid mode)
+│   ├── xlsx_to_sqlite.py   # Convert XLSX exports to SQLite database
 │   ├── resume_ingestion.py # Wait for rate limit reset and resume
 │   ├── test_api.py         # Test API connectivity
 │   └── test_chatbot.py     # Test chatbot with current data
 ├── data/
-│   └── chroma_db/          # Local vector database
+│   ├── chroma_db/          # Local vector database
+│   └── messages.db         # SQLite message database (from XLSX)
+├── docs/
+│   └── SPRINKLR_API_REFERENCE.md  # API documentation
 ├── .env.example
 ├── requirements.txt
 └── README.md
@@ -242,6 +258,25 @@ The chatbot includes realistic sample conversations for testing without Sprinklr
 - Demos and stakeholder presentations
 - Validating the RAG architecture
 
+### Hybrid Ingestion Mode (Recommended)
+
+Hybrid ingestion bypasses the rate-limited message API by loading message content from pre-exported XLSX files converted to SQLite:
+
+```bash
+# Step 1: Export messages from Sprinklr UI as XLSX files to data_import/
+# Step 2: Convert to SQLite (one-time, ~5 minutes for 300K+ messages)
+python scripts/xlsx_to_sqlite.py
+
+# Step 3: Run hybrid ingestion
+python scripts/ingest_data.py --live --xlsx-messages --max-cases 10000 --days 365
+```
+
+**Performance comparison:**
+| Mode | 10,000 cases | Rate limit impact |
+|------|--------------|-------------------|
+| API-only | ~10+ hours | Heavy (message bulk fetch) |
+| Hybrid | ~30 minutes | Minimal (case search only) |
+
 ### Rate Limits
 
 When using live Sprinklr data, be aware of rate limits:
@@ -253,10 +288,14 @@ The client includes:
 - Auto-retry on 403/429 errors with 5-minute waits (up to 3 retries)
 - Unified error handling for all API endpoints
 
-**API calls per case (with bulk fetch):**
+**API calls per case (API-only mode):**
 - 1 search call to find cases (paginated)
 - 1 call to get message IDs for a case
 - 1 bulk fetch call to get all messages (regardless of count)
+
+**API calls per case (Hybrid mode):**
+- 1 search call to find cases (paginated)
+- 0 message API calls (loaded from SQLite)
 
 For large ingestion batches, use the resume script to wait for rate limit reset:
 
