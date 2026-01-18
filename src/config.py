@@ -54,7 +54,13 @@ class Config:
 
     # LLM settings
     CLAUDE_MODEL: str = "claude-sonnet-4-20250514"
-    MAX_CONTEXT_CASES: int = 10  # Maximum cases to include in context
+    MAX_CONTEXT_CASES: int = 10  # Maximum cases to include in context (legacy)
+
+    # Multi-Agent Settings
+    USE_MULTI_AGENT: bool = os.getenv("USE_MULTI_AGENT", "true").lower() == "true"
+    MAX_CONTEXT_CASES_BROAD: int = int(os.getenv("MAX_CONTEXT_CASES_BROAD", "50"))
+    MAX_CONTEXT_CASES_SPECIFIC: int = int(os.getenv("MAX_CONTEXT_CASES_SPECIFIC", "5"))
+    THEME_EXTRACTION_METHOD: str = os.getenv("THEME_EXTRACTION_METHOD", "keyword")  # "keyword" or "llm"
 
     @classmethod
     def get_sprinklr_base_url(cls) -> str:

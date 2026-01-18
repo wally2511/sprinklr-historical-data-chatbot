@@ -2,6 +2,7 @@
 RAG Chatbot engine for querying historical engagement data.
 
 Uses semantic search to find relevant cases and Claude to generate responses.
+Supports both legacy single-pipeline and multi-agent architectures.
 """
 
 from typing import List, Dict, Any, Optional
@@ -10,6 +11,7 @@ import openai
 
 from config import config
 from vector_store import VectorStore
+from agents.orchestrator import Orchestrator
 
 
 SYSTEM_PROMPT = """You are an AI assistant helping community managers and product teams analyze historical social media engagement data. You have access to conversation cases from Sprinklr that contain interactions between users and agents.
@@ -39,6 +41,14 @@ class Chatbot:
         self.conversation_history: List[Dict[str, str]] = []
         self.provider = provider or config.LLM_PROVIDER
         self._init_llm_client()
+
+        # Initialize multi-agent orchestrator
+        self.orchestrator = Orchestrator(
+            llm_client=self.llm_client,
+            vector_store=self.vector_store,
+            provider=self.provider
+        )
+        self.use_multi_agent = config.USE_MULTI_AGENT
 
     def _init_llm_client(self):
         """Initialize the LLM client based on the current provider."""
@@ -182,6 +192,8 @@ Conversation:
         """
         Process a chat message and generate a response.
 
+        Uses multi-agent architecture when enabled, otherwise falls back to legacy pipeline.
+
         Args:
             message: User's question
             start_date: Optional date filter
@@ -192,6 +204,80 @@ Conversation:
 
         Returns:
             Dictionary with response and metadata
+        """
+        if self.use_multi_agent:
+            return self._chat_multi_agent(
+                message, start_date, end_date, theme, brands, include_sources
+            )
+        else:
+            return self._chat_legacy(
+                message, start_date, end_date, theme, brands, include_sources
+            )
+
+    def _chat_multi_agent(
+        self,
+        message: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        theme: Optional[str] = None,
+        brands: Optional[List[str]] = None,
+        include_sources: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Process chat using multi-agent architecture.
+
+        Query Agent analyzes the query, Orchestrator executes the search strategy,
+        and Response Agent generates the answer.
+        """
+        try:
+            result = self.orchestrator.process_query(
+                query=message,
+                start_date=start_date,
+                end_date=end_date,
+                theme=theme,
+                brands=brands
+            )
+
+            # Update conversation history for context
+            self.conversation_history.append({"role": "user", "content": message})
+            self.conversation_history.append({"role": "assistant", "content": result["response"]})
+
+            # Keep history manageable
+            if len(self.conversation_history) > 20:
+                self.conversation_history = self.conversation_history[-20:]
+
+            # Format result to match expected interface
+            response = {
+                "response": result["response"],
+                "cases_found": result["cases_found"],
+                "query_type": result.get("query_type", "unknown"),
+            }
+
+            if include_sources:
+                response["sources"] = result.get("sources", [])
+
+            return response
+
+        except Exception as e:
+            return {
+                "response": f"I encountered an error processing your query: {str(e)}",
+                "cases_found": 0,
+                "error": str(e)
+            }
+
+    def _chat_legacy(
+        self,
+        message: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        theme: Optional[str] = None,
+        brands: Optional[List[str]] = None,
+        include_sources: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Process chat using legacy single-pipeline architecture.
+
+        This is the original implementation kept for fallback purposes.
         """
         # Search for relevant cases
         cases = self.search_cases(
