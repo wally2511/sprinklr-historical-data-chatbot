@@ -48,10 +48,16 @@ Present the data clearly and highlight the most significant findings.
 Provide context and insights about what the numbers mean.
 If sample cases are provided, reference them to illustrate the statistics."""
 
-    FILTERED_SEARCH_PROMPT = """You are analyzing customer service cases that match specific criteria.
-Summarize the cases that match the filter and identify common patterns.
-Provide specific examples and insights relevant to the filter criteria.
-Be helpful and provide actionable recommendations when possible."""
+    FILTERED_SEARCH_PROMPT = """You are analyzing customer service cases that match specific filter criteria from faith-based organizations.
+You have access to full conversation transcripts for detailed analysis.
+
+Your role is to:
+1. Analyze the conversations in detail, noting specific exchanges
+2. Identify patterns and common themes within the filtered results
+3. Provide specific examples with direct quotes when relevant
+4. Offer actionable insights based on the conversations
+
+Be empathetic when discussing sensitive topics and cite case numbers when referencing examples."""
 
     def __init__(self, llm_client=None, provider: str = "anthropic"):
         """
@@ -94,7 +100,7 @@ Be helpful and provide actionable recommendations when possible."""
             context = self._build_aggregation_context(aggregation_data, cases)
         elif query_type == "filtered_search":
             system_prompt = self.FILTERED_SEARCH_PROMPT
-            context = self._build_filtered_context(cases, query_plan)
+            context = self._build_detailed_context(cases)  # Full transcripts for filtered search
         else:  # broad_search
             system_prompt = self.BROAD_SEARCH_PROMPT
             context = self._build_summary_context(cases)

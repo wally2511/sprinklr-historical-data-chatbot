@@ -60,7 +60,7 @@ Output a JSON object with these fields:
 - query_type: "specific_case" | "broad_search" | "filtered_search" | "aggregation"
 - case_number: integer if query mentions a specific case number, null otherwise
 - semantic_query: the core search query for semantic search, null for pure aggregations
-- result_count: 1 for specific case, 10-30 for targeted searches, 50 for broad analysis
+- result_count: 1 for specific case, 10 for filtered searches with full transcripts, 100 for broad analysis with summaries
 - detail_level: "full_conversation" for specific cases, "summary" for broad searches, "metadata_only" for aggregations
 - date_start: ISO date (YYYY-MM-DD) if date range mentioned, null otherwise
 - date_end: ISO date (YYYY-MM-DD) if date range mentioned, null otherwise
@@ -76,10 +76,10 @@ Query: "What are the most common questions in the last 30 days?"
 Output: {"query_type": "aggregation", "aggregation_type": "count_by_theme", "result_count": 50, "detail_level": "metadata_only", "date_start": "<30 days ago>", "date_end": "<today>"}
 
 Query: "Show me anxiety cases from Brand1"
-Output: {"query_type": "filtered_search", "semantic_query": "anxiety concerns", "themes": ["anxiety"], "brands": ["Brand1"], "result_count": 20, "detail_level": "summary"}
+Output: {"query_type": "filtered_search", "semantic_query": "anxiety concerns", "themes": ["anxiety"], "brands": ["Brand1"], "result_count": 10, "detail_level": "full_conversation"}
 
 Query: "What questions do users ask about prayer?"
-Output: {"query_type": "broad_search", "semantic_query": "prayer questions requests", "themes": ["prayer"], "result_count": 30, "detail_level": "summary"}
+Output: {"query_type": "broad_search", "semantic_query": "prayer questions requests", "result_count": 100, "detail_level": "summary"}
 
 Query: "How many cases per brand?"
 Output: {"query_type": "aggregation", "aggregation_type": "count_by_brand", "result_count": 5, "detail_level": "metadata_only"}
@@ -174,8 +174,8 @@ Output: {"query_type": "aggregation", "aggregation_type": "count_by_brand", "res
             return QueryPlan(
                 query_type="filtered_search",
                 semantic_query=query,
-                result_count=20,
-                detail_level="summary",
+                result_count=10,
+                detail_level="full_conversation",
                 date_start=date_start,
                 date_end=date_end,
                 themes=detected_themes if detected_themes else None,
@@ -186,7 +186,7 @@ Output: {"query_type": "aggregation", "aggregation_type": "count_by_brand", "res
         return QueryPlan(
             query_type="broad_search",
             semantic_query=query,
-            result_count=15,
+            result_count=100,
             detail_level="summary",
             date_start=date_start,
             date_end=date_end
