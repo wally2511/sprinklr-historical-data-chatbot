@@ -165,7 +165,8 @@ Output: {"query_type": "aggregation", "aggregation_type": "count_by_brand", "res
     AGGREGATION_KEYWORDS = [
         "how many", "count", "total", "distribution", "breakdown",
         "most common", "popular", "frequent", "statistics", "stats",
-        "trend", "trends", "percentage", "percent"
+        "trend", "trends", "percentage", "percent",
+        "top 4", "top 5", "top 10", "top "  # "top N" patterns
     ]
 
     DATE_KEYWORDS = [
@@ -376,11 +377,18 @@ Guidelines:
         """Create a plan for aggregation queries."""
         query_lower = query.lower()
 
-        # Determine aggregation type
+        # Determine aggregation type based on query content
         if "brand" in query_lower:
             agg_type = "count_by_brand"
         elif "sentiment" in query_lower:
             agg_type = "sentiment_distribution"
+        elif any(kw in query_lower for kw in ["case type", "interaction type", "types of interaction",
+                                               "types of cases", "what types"]):
+            agg_type = "count_by_case_type"
+        elif any(kw in query_lower for kw in ["topic", "subject", "what about", "discussed"]):
+            agg_type = "count_by_case_topic"
+        elif any(kw in query_lower for kw in ["prayer request", "prayer_request"]):
+            agg_type = "count_by_case_topic"  # Topics within prayer requests
         else:
             agg_type = "count_by_theme"
 

@@ -398,6 +398,10 @@ class Orchestrator:
             result["brand_distribution"] = self.vector_store.count_by_brand()
         elif agg_type == "sentiment_distribution":
             result["sentiment_distribution"] = self.vector_store.count_by_field("sentiment")
+        elif agg_type == "count_by_case_type":
+            result["case_type_distribution"] = self.vector_store.count_by_case_type()
+        elif agg_type == "count_by_case_topic":
+            result["case_topic_distribution"] = self.vector_store.count_by_case_topic()
         else:  # Default to count_by_theme
             result["theme_distribution"] = self.vector_store.count_by_theme()
 
@@ -424,6 +428,12 @@ class Orchestrator:
 
         elif agg_type == "sentiment_distribution":
             result["sentiment_distribution"] = self.vector_store.count_by_field("sentiment")
+
+        elif agg_type == "count_by_case_type":
+            result["case_type_distribution"] = self.vector_store.count_by_case_type()
+
+        elif agg_type == "count_by_case_topic":
+            result["case_topic_distribution"] = self.vector_store.count_by_case_topic()
 
         else:  # Default to count_by_theme
             result["theme_distribution"] = self.vector_store.count_by_theme()

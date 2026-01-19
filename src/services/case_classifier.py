@@ -13,60 +13,74 @@ from taxonomy import CASE_TYPES, CASE_TOPICS, normalize_case_type, normalize_cas
 
 
 # Keyword patterns for fast fallback classification
+# Refined based on Brand1 case analysis (2024)
 CASE_TYPE_KEYWORDS: Dict[str, list] = {
-    "prayer_request": ["pray for", "prayer request", "please pray", "praying for", "need prayer", "lift up"],
-    "question": ["question", "wondering", "curious", "what is", "how do", "why do", "can you explain", "?", "what does"],
-    "testimony": ["testimony", "praise report", "thankful", "god answered", "miracle", "he healed", "praise god", "thank you lord"],
-    "feedback": ["feedback", "suggestion", "just wanted to say", "love this", "great content", "amazing show"],
-    "encouragement_seeking": ["need encouragement", "feeling down", "struggling", "please encourage", "need support"],
-    "crisis_support": ["crisis", "emergency", "urgent", "suicidal", "end my life", "want to die", "desperate", "can't go on"],
-    "counseling_request": ["need to talk", "can i speak", "counselor", "guidance", "advice", "talk to someone"],
-    "resource_request": ["resource", "recommend", "book", "study material", "where can i find", "looking for"],
-    "complaint": ["complaint", "unhappy", "disappointed", "frustrated", "upset", "terrible"],
-    "greeting": ["hello", "hi there", "good morning", "good evening", "hey", "howdy"],
-    "appreciation": ["thank you", "thanks", "appreciate", "grateful", "bless you", "god bless"],
-    "confession": ["confession", "i've been struggling", "need to confess", "accountability", "admit"],
-    "salvation_inquiry": ["how to be saved", "become a christian", "accept jesus", "what must i do", "born again"],
+    "testimony": ["testimony", "praise report", "thankful", "god answered", "miracle", "he healed", "praise god",
+                  "thank you lord", "i accepted", "i gave my life", "i was saved", "god did", "amazing testimony"],
+    "encouragement_seeking": ["need encouragement", "feeling down", "struggling", "please encourage", "need support",
+                              "going through", "hard time", "difficult", "help me", "strength", "praying for me"],
+    "question": ["question", "wondering", "curious", "what is", "how do", "why do", "can you explain", "?",
+                 "what does", "is it wrong", "does god", "can a christian"],
+    "prayer_request": ["pray for", "prayer request", "please pray", "praying for", "need prayer", "lift up",
+                       "intercede", "prayer warrior"],
+    "appreciation": ["thank you", "thanks", "appreciate", "grateful", "bless you", "god bless", "blessed by",
+                     "love the show", "great program", "wonderful message"],
+    "greeting": ["hello", "hi there", "good morning", "good evening", "hey", "howdy", "greetings",
+                 "peace be with you", "shalom"],
+    "resource_request": ["resource", "recommend", "book", "study material", "where can i find", "looking for",
+                         "send me", "can i get", "how do i access", "download", "bible", "devotional"],
+    "feedback": ["feedback", "suggestion", "just wanted to say", "love this", "great content", "amazing show",
+                 "the program", "the episode", "keep up"],
+    "crisis_support": ["crisis", "emergency", "urgent", "suicidal", "end my life", "want to die", "desperate",
+                       "can't go on", "hopeless", "no reason to live", "in danger"],
+    "counseling_request": ["need to talk", "can i speak", "counselor", "guidance", "advice", "talk to someone",
+                           "need help", "please call", "can someone call"],
+    "salvation_inquiry": ["how to be saved", "become a christian", "accept jesus", "what must i do", "born again",
+                          "accept christ", "give my life to jesus", "salvation"],
+    "evangelism_guidance": ["share my faith", "witnessing", "tell others", "evangelize", "share the gospel",
+                            "reach my family", "preach", "how to share"],
+    "complaint": ["complaint", "unhappy", "disappointed", "frustrated", "upset", "terrible", "wrong", "issue"],
+    "confession": ["confession", "i've been struggling", "need to confess", "accountability", "admit", "sin"],
 }
 
 CASE_TOPIC_KEYWORDS: Dict[str, list] = {
-    # Faith & Spiritual Life
-    "spiritual_growth": ["grow in faith", "devotional", "closer to god", "spiritual journey", "discipleship"],
-    "prayer": ["prayer", "pray", "praying", "intercession", "petition"],
-    "bible_study": ["bible", "scripture", "verse", "theology", "gospel", "word of god"],
-    "worship": ["worship", "praise", "music", "song", "hymn", "sing"],
-    "salvation": ["salvation", "saved", "accept jesus", "born again", "believe", "eternal life"],
-    "doubt": ["doubt", "questioning", "struggle to believe", "faith crisis", "not sure"],
-    "evangelism": ["share my faith", "witnessing", "non-believer", "gospel", "testimony"],
+    # High frequency topics (based on Brand1 analysis)
+    "evangelism": ["share my faith", "witnessing", "non-believer", "gospel", "testimony", "preach", "evangelize",
+                   "share the gospel", "reach others", "tell others about", "unbeliever", "lost", "witness"],
+    "spiritual_growth": ["grow in faith", "devotional", "closer to god", "spiritual journey", "discipleship",
+                         "mature", "grow spiritually", "deepen my faith"],
+    "relationships": ["relationship", "friend", "dating", "conflict", "community", "neighbor", "coworker"],
+    "media_content": ["show", "episode", "movie", "video", "content", "program", "broadcast", "radio",
+                      "podcast", "channel", "watch", "listen"],
+    "prayer": ["prayer", "pray", "praying", "intercession", "petition", "pray for"],
+    "faith": ["faith", "believe", "trust", "trust in god", "believer", "faithful"],
 
-    # Relationships & Family
-    "relationships": ["relationship", "friend", "dating", "conflict", "community"],
-    "marriage": ["marriage", "spouse", "husband", "wife", "divorce", "engaged", "wedding"],
+    # Medium frequency topics
+    "worship": ["worship", "praise", "music", "song", "hymn", "sing", "praise god"],
+    "identity": ["identity", "self-worth", "who am i", "insecure", "value", "in christ"],
+    "doubt": ["doubt", "questioning", "struggle to believe", "faith crisis", "not sure", "confused"],
+    "community": ["community", "fellowship", "brothers and sisters", "church family", "gathering"],
+    "mental_health": ["anxiety", "depression", "anxious", "depressed", "panic", "mental health",
+                      "overwhelmed", "stress", "fear", "worry"],
+    "bible_study": ["bible", "scripture", "verse", "theology", "word of god", "chapter", "book of"],
+    "church": ["church", "pastor", "congregation", "church hurt", "ministry", "service", "attend"],
+    "technology": ["app", "website", "ai", "chatbot", "technology", "digital", "online", "internet"],
+
+    # Lower frequency topics
     "family": ["family", "parents", "children", "kids", "son", "daughter", "mother", "father"],
-    "loneliness": ["lonely", "alone", "isolated", "no one", "by myself"],
-
-    # Life Challenges
-    "health": ["health", "sick", "illness", "cancer", "surgery", "doctor", "hospital", "healing", "medical"],
-    "mental_health": ["anxiety", "depression", "anxious", "depressed", "panic", "mental health", "overwhelmed", "stress"],
-    "grief": ["grief", "loss", "died", "death", "mourning", "passed away", "funeral", "miss them"],
-    "addiction": ["addiction", "addicted", "alcohol", "drug", "porn", "gambling", "recovery", "sober"],
-    "finances": ["money", "financial", "debt", "bills", "unemployed", "job loss", "provision"],
-    "career": ["career", "work", "boss", "job", "promotion", "calling", "employment"],
-
-    # Personal Growth
-    "guidance": ["guidance", "direction", "decision", "discernment", "what should i do", "god's will"],
-    "purpose": ["purpose", "meaning", "calling", "why am i here", "destiny"],
     "forgiveness": ["forgive", "forgiveness", "hurt", "resentment", "bitterness", "grudge"],
-    "identity": ["identity", "self-worth", "who am i", "insecure", "value"],
-    "suffering": ["suffering", "pain", "why me", "tragedy", "hardship"],
-
-    # Media & Content
-    "media_content": ["show", "episode", "movie", "video", "content", "program"],
-    "technology": ["app", "website", "ai", "chatbot", "technology", "digital"],
-
-    # Other
+    "salvation": ["salvation", "saved", "accept jesus", "born again", "eternal life", "accept christ"],
+    "health": ["health", "sick", "illness", "cancer", "surgery", "doctor", "hospital", "healing", "medical"],
+    "suffering": ["suffering", "pain", "why me", "tragedy", "hardship", "trial", "difficult"],
+    "guidance": ["guidance", "direction", "decision", "discernment", "what should i do", "god's will"],
+    "finances": ["money", "financial", "debt", "bills", "unemployed", "job loss", "provision"],
+    "loneliness": ["lonely", "alone", "isolated", "no one", "by myself"],
+    "addiction": ["addiction", "addicted", "alcohol", "drug", "porn", "gambling", "recovery", "sober"],
+    "marriage": ["marriage", "spouse", "husband", "wife", "divorce", "engaged", "wedding"],
+    "grief": ["grief", "loss", "died", "death", "mourning", "passed away", "funeral", "miss them"],
+    "career": ["career", "work", "boss", "job", "promotion", "calling", "employment"],
+    "purpose": ["purpose", "meaning", "calling", "why am i here", "destiny"],
     "politics": ["politics", "government", "election", "leader", "country"],
-    "church": ["church", "pastor", "congregation", "church hurt", "ministry", "service"],
 }
 
 

@@ -14,64 +14,66 @@ from typing import List
 
 
 # Case Types - The nature/intent of the interaction
-# Discovered from analysis of 1000 cases + domain knowledge
+# Refined from LLM analysis of 1000 Brand1 cases (2024)
 CASE_TYPES: List[str] = [
-    "prayer_request",       # User requesting prayer for themselves or others
-    "question",             # General question about faith, theology, or life
-    "testimony",            # Sharing a testimony or praise report
-    "feedback",             # Feedback about the organization, content, or service
-    "encouragement_seeking", # Seeking encouragement, affirmation, or support
-    "crisis_support",       # Urgent emotional or spiritual crisis
-    "counseling_request",   # Request for deeper guidance or counseling
-    "resource_request",     # Asking for books, studies, or materials
-    "complaint",            # Complaint or concern about experience
-    "greeting",             # Simple greeting or brief interaction
-    "appreciation",         # Expressing thanks or appreciation
-    "confession",           # Sharing struggles or seeking accountability
+    # High frequency (>5% of cases)
+    "testimony",            # Sharing a testimony, praise report, or faith story (12.7%)
+    "encouragement_seeking", # Seeking encouragement, affirmation, or support (10.7%)
+    "question",             # General question about faith, theology, or life (10.2%)
+    "prayer_request",       # User requesting prayer for themselves or others (7.5%)
+    "appreciation",         # Expressing thanks or appreciation (7.3%)
+    "greeting",             # Simple greeting or brief interaction (5.6%)
+    "resource_request",     # Asking for books, studies, materials, or content (5.2%)
+    "feedback",             # Feedback about the organization, content, or service (4.8%)
+
+    # Medium frequency (1-5% of cases)
+    "crisis_support",       # Urgent emotional or spiritual crisis (2.9%)
+    "counseling_request",   # Request for deeper guidance or counseling (1.2%)
+
+    # Lower frequency (<1% of cases)
     "salvation_inquiry",    # Questions about becoming a Christian
+    "evangelism_guidance",  # Help with sharing faith or witnessing
+    "complaint",            # Complaint or concern about experience
+    "confession",           # Sharing struggles or seeking accountability
     "general",              # General interaction that doesn't fit other categories
 ]
 
 # Case Topics - The subject matter being discussed
-# Consolidated from LLM analysis of 1000 cases
+# Refined from LLM analysis of 1000 Brand1 cases (2024)
 CASE_TOPICS: List[str] = [
-    # Faith & Spiritual Life
-    "spiritual_growth",     # Growing in faith, discipleship, devotional life
-    "prayer",               # Prayer requests, prayer life, intercession
-    "bible_study",          # Scripture, theology, doctrine questions
-    "worship",              # Worship, music, praise
-    "salvation",            # Coming to faith, understanding gospel
-    "doubt",                # Questions about faith, struggles to believe
-    "evangelism",           # Sharing faith, witnessing, outreach
+    # High frequency (>3% of cases)
+    "evangelism",           # Sharing faith, witnessing, outreach, gospel (20.4%)
+    "spiritual_growth",     # Growing in faith, discipleship, devotional life (6.0%)
+    "relationships",        # Friendships, dating, conflict, community (5.3%)
+    "media_content",        # Questions about shows, music, content, programs (4.7%)
+    "prayer",               # Prayer requests, prayer life, intercession (3.9%)
+    "faith",                # General faith topics, belief, trust in God (3.2%)
 
-    # Relationships & Family
-    "relationships",        # Friendships, dating, conflict, community
-    "marriage",             # Marital issues, divorce, engagement
+    # Medium frequency (1-3% of cases)
+    "worship",              # Worship, music, praise (1.7%)
+    "identity",             # Self-worth, who I am in Christ (1.7%)
+    "doubt",                # Questions about faith, struggles to believe (1.4%)
+    "community",            # Christian community, fellowship, connection (1.3%)
+    "mental_health",        # Anxiety, depression, emotional struggles (1.1%)
+    "bible_study",          # Scripture, theology, doctrine questions (1.0%)
+    "church",               # Church hurt, finding community, leadership (1.0%)
+    "technology",           # AI, apps, digital tools (1.0%)
+
+    # Lower frequency (<1% of cases)
     "family",               # Family relationships, parenting, children
-    "loneliness",           # Isolation, seeking connection
-
-    # Life Challenges
-    "health",               # Physical health, illness, healing
-    "mental_health",        # Anxiety, depression, emotional struggles
-    "grief",                # Loss, mourning, death of loved one
-    "addiction",            # Substance abuse, behavioral addictions
-    "finances",             # Money, debt, provision, employment
-    "career",               # Work, calling, job transitions
-
-    # Personal Growth
-    "guidance",             # Decision-making, discernment, direction
-    "purpose",              # Life meaning, calling, destiny
     "forgiveness",          # Forgiving others, receiving forgiveness
-    "identity",             # Self-worth, who I am in Christ
+    "salvation",            # Coming to faith, understanding gospel
+    "health",               # Physical health, illness, healing
     "suffering",            # Making sense of pain, hardship
-
-    # Media & Content
-    "media_content",        # Questions about shows, music, content
-    "technology",           # AI, apps, digital tools
-
-    # Other
+    "guidance",             # Decision-making, discernment, direction
+    "finances",             # Money, debt, provision, employment
+    "loneliness",           # Isolation, seeking connection
+    "addiction",            # Substance abuse, behavioral addictions
+    "marriage",             # Marital issues, divorce, engagement
+    "grief",                # Loss, mourning, death of loved one
+    "career",               # Work, calling, job transitions
+    "purpose",              # Life meaning, calling, destiny
     "politics",             # Political concerns, social issues
-    "church",               # Church hurt, finding community, leadership
     "general",              # Topic doesn't fit other categories
 ]
 
