@@ -41,10 +41,21 @@ Provide a detailed analysis including:
 Be specific and cite directly from the conversation. Be empathetic when discussing sensitive topics."""
 
     BROAD_SEARCH_PROMPT = """You are analyzing multiple customer service cases from faith-based organizations to answer a question.
-Synthesize information across all provided cases to give a comprehensive answer.
-Identify patterns, common themes, and provide specific examples where relevant.
-Cite case numbers when referencing specific examples.
-Be helpful and provide actionable insights when possible."""
+Synthesize information across all provided cases to give a comprehensive, detailed answer.
+
+Your response MUST include:
+1. **Specific examples with case numbers** - Reference at least 3-5 specific cases (e.g., "In Case #12345...")
+2. **Direct quotes from conversations** - Include actual quotes from the case data when relevant
+3. **Detailed patterns with evidence** - Don't just name patterns; describe them with supporting case examples
+4. **Concrete recommendations** - Provide actionable insights based on the data
+
+Guidelines:
+- Be thorough and detailed in your analysis
+- Cite case numbers frequently when referencing examples
+- Use quotes and specific details from conversations to support your points
+- Identify both common themes AND notable exceptions or unique cases
+- Be empathetic when discussing sensitive topics like grief, doubt, or mental health
+- If you have many cases, organize your response with clear sections or categories"""
 
     AGGREGATION_PROMPT = """You are presenting statistical data about customer service cases from faith-based organizations.
 Present the data clearly and highlight the most significant findings.
@@ -203,7 +214,7 @@ Description: {metadata.get('description', 'N/A')}
         return "\n".join(context_parts)
 
     def _build_summary_context(self, cases: List[Dict[str, Any]]) -> str:
-        """Build context with summaries only for broad queries."""
+        """Build enriched context for broad queries with summaries and conversation excerpts."""
         if not cases:
             return "No matching cases found."
 
@@ -212,15 +223,38 @@ Description: {metadata.get('description', 'N/A')}
             metadata = case.get("metadata", {})
             date_str = metadata.get('created_at', '')[:10] if metadata.get('created_at') else 'N/A'
             summary = case.get('summary', 'No summary')
-            # Truncate long summaries
-            if len(summary) > 300:
-                summary = summary[:297] + "..."
 
-            context_parts.append(f"""
+            # Get additional fields for richer context
+            subject = metadata.get('subject', '')
+            description = metadata.get('description', '')
+            outcome = metadata.get('outcome', 'Unknown')
+            sentiment = metadata.get('sentiment', 'Unknown')
+            full_conversation = metadata.get('full_conversation', '')
+
+            # Truncate conversation to first 2000 chars for context
+            if full_conversation and len(full_conversation) > 2000:
+                full_conversation = full_conversation[:1997] + "..."
+
+            # Build case entry
+            case_entry = f"""
 {i}. Case #{metadata.get('case_number', 'Unknown')} ({date_str})
    Brand: {metadata.get('brand', 'Unknown')} | Theme: {metadata.get('theme', 'Unknown')} | Channel: {metadata.get('channel', 'Unknown')}
-   Summary: {summary}
-""")
+   Outcome: {outcome} | Sentiment: {sentiment}"""
+
+            if subject:
+                case_entry += f"\n   Subject: {subject}"
+
+            case_entry += f"\n   Summary: {summary}"
+
+            if description and description != summary:
+                desc_truncated = description[:500] + "..." if len(description) > 500 else description
+                case_entry += f"\n   Description: {desc_truncated}"
+
+            if full_conversation:
+                case_entry += f"\n   Conversation Excerpt:\n   {full_conversation}"
+
+            context_parts.append(case_entry)
+
         return "\n".join(context_parts)
 
     def _build_filtered_context(
@@ -302,7 +336,7 @@ Description: {metadata.get('description', 'N/A')}
             if self.provider == "openai":
                 response = self.llm_client.chat.completions.create(
                     model="gpt-4o",
-                    max_tokens=1500,
+                    max_tokens=2500,
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_message}
@@ -312,7 +346,7 @@ Description: {metadata.get('description', 'N/A')}
             else:
                 response = self.llm_client.messages.create(
                     model="claude-sonnet-4-20250514",
-                    max_tokens=1500,
+                    max_tokens=2500,
                     system=system_prompt,
                     messages=[{"role": "user", "content": user_message}]
                 )

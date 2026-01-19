@@ -135,7 +135,7 @@ class Orchestrator:
             if query_plan.semantic_query:
                 cases = self.vector_store.search(
                     query=query_plan.semantic_query,
-                    n_results=5,
+                    n_results=min(query_plan.result_count, Config.MAX_CONTEXT_CASES_BROAD),
                     start_date=query_plan.date_start,
                     end_date=query_plan.date_end,
                     theme=query_plan.themes[0] if query_plan.themes else None,

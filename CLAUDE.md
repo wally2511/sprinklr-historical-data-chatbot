@@ -89,6 +89,10 @@ cp .env.example .env           # Then edit with API keys
 
 ### Run Application
 ```bash
+# Using venv directly (recommended for Claude Code):
+venv\Scripts\python.exe -m streamlit run src/app.py
+
+# Or if venv is activated:
 streamlit run src/app.py
 # OR
 python run.py

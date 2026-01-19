@@ -125,7 +125,12 @@ python scripts/ingest_data.py --live --days 30 --max-cases 500
 ### 4. Run the Chatbot
 
 ```bash
+# If venv is activated:
 streamlit run src/app.py
+
+# Or use venv python directly (recommended for automation/scripts):
+venv\Scripts\python.exe -m streamlit run src/app.py   # Windows
+venv/bin/python -m streamlit run src/app.py           # Linux/Mac
 ```
 
 ## Configuration
