@@ -32,11 +32,13 @@ RAG chatbot that enables natural language queries against Sprinklr historical en
 
 ### Implemented Features
 - **Multi-Agent Architecture**: Query Agent, Response Agent, and Orchestrator for intelligent query processing
+- **Case Type & Topic Classification**: LLM-based classification (GPT-4o-mini) into 15 case types and 27 topics
 - **Compound Search**: Multi-step search strategies for complex queries (e.g., "What are the main themes and show me examples?")
+- **Database Query Tool**: Aggregations by case_type, case_topic, theme, brand (e.g., "top 5 case types")
 - **Hybrid Ingestion**: API for case metadata + SQLite for messages (bypasses rate-limited message API)
 - **Specific Case Lookup**: Query specific cases like "case #54123"
 - **Dynamic Context Size**: Adjusts results based on query type (1 for specific, 10 for filtered, 100 for broad)
-- **Aggregations**: Statistical queries like "most common questions in last 30 days"
+- **Aggregations**: Statistical queries like "most common case types" or "topic distribution"
 
 ### Multi-Agent Architecture
 ```
@@ -71,6 +73,13 @@ For complex queries, the system automatically detects and executes multi-step se
 
 ### Remaining Known Issues
 None currently.
+
+### Case Classification (Taxonomy)
+Each case is classified during ingestion using GPT-4o-mini:
+- **Case Types** (15): testimony, encouragement_seeking, question, prayer_request, appreciation, greeting, resource_request, feedback, crisis_support, counseling_request, salvation_inquiry, evangelism_guidance, complaint, confession, general
+- **Case Topics** (27): evangelism, spiritual_growth, relationships, media_content, prayer, faith, worship, identity, doubt, community, mental_health, bible_study, church, technology, family, forgiveness, salvation, health, suffering, guidance, finances, loneliness, addiction, marriage, grief, career, purpose, politics, general
+
+See `src/taxonomy.py` for full definitions and `src/services/case_classifier.py` for classification logic.
 
 ### Agent Files
 - `src/agents/query_agent.py` - Query analysis, compound detection, and planning
@@ -161,6 +170,7 @@ Data Sources
    - **Hybrid mode**: Lookup messages from SQLite DB first, fallback to API
    - **API-only mode**: Fetch message IDs per case → Bulk fetch messages
    - Generate AI summary (OpenAI or Anthropic based on `LLM_PROVIDER`)
+   - **Classify case_type and case_topic** using GPT-4o-mini
    - Extract themes using keyword matching
    - Batch store in ChromaDB with embeddings
 2. **Query** (`chatbot.py`): User query → Vector search (top 10) → Build context → Claude response → Return with sources
@@ -199,7 +209,7 @@ See `docs/SPRINKLR_API_REFERENCE.md` for complete endpoint documentation.
 - Chat responses always use Anthropic Claude
 
 ### Vector Store Metadata
-ChromaDB stores: `case_number`, `brand`, `channel`, `theme`, `outcome`, `sentiment`, `language`, `country`, `created_at`, `full_conversation` (truncated to 5000 chars), `description`, `subject`
+ChromaDB stores: `case_number`, `brand`, `channel`, `theme`, `outcome`, `sentiment`, `language`, `country`, `created_at`, `full_conversation` (truncated to 5000 chars), `description`, `subject`, `case_type`, `case_topic`
 
 ### Session State (Streamlit)
 - `st.session_state.messages`: Chat history

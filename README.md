@@ -19,9 +19,10 @@ A RAG-powered chatbot that allows community managers and product teams to query 
 - **Natural Language Queries**: Ask questions about your engagement data in plain English
 - **Multi-Agent Architecture**: Intelligent query routing for optimal search strategies
 - **Specific Case Lookup**: Query individual cases by number (e.g., "What happened in case #478117?")
-- **Aggregation Queries**: Get statistics and distributions (e.g., "What are the most common themes?")
+- **Aggregation Queries**: Get statistics and distributions (e.g., "What are the most common case types?")
 - **Semantic Search**: Find relevant conversations using AI-powered vector search
 - **Filtered Search**: Combine theme, brand, and date filters
+- **Case Type & Topic Classification**: LLM-based classification into 15 case types and 27 topics
 - **Theme Extraction**: Automatic categorization of conversations into 16 faith-based themes
 - **Case Summaries**: AI-generated summaries for better pattern recognition
 - **Date Range Filtering**: Analyze specific time periods
@@ -174,6 +175,12 @@ The multi-agent system can be configured via environment variables:
 - "What happened in case #478117?"
 - "Show me the details of case #475141"
 
+**Case Type & Topic Queries:**
+- "What are the most common case types?"
+- "Top 5 topics in prayer request cases"
+- "Show me the topic distribution"
+- "How many crisis support cases do we have?"
+
 **Aggregation Queries:**
 - "What are the most common themes?"
 - "How many cases per brand?"
@@ -208,13 +215,16 @@ sprinklr-chatbot/
 │   │   ├── query_agent.py      # Query analysis and plan generation
 │   │   ├── response_agent.py   # Context-aware response generation
 │   │   └── orchestrator.py     # Agent coordination
+│   ├── taxonomy.py         # Case type and topic definitions
 │   └── services/           # Shared services
 │       ├── __init__.py
 │       ├── theme_extractor.py  # Keyword-based theme extraction
+│       ├── case_classifier.py  # LLM-based case type/topic classification
 │       └── message_store.py    # SQLite message lookups
 ├── scripts/
 │   ├── ingest_data.py      # CLI for data ingestion (supports hybrid mode)
 │   ├── xlsx_to_sqlite.py   # Convert XLSX exports to SQLite database
+│   ├── analyze_taxonomy_from_sqlite.py  # Analyze cases for taxonomy discovery
 │   ├── resume_ingestion.py # Wait for rate limit reset and resume
 │   ├── test_api.py         # Test API connectivity
 │   └── test_chatbot.py     # Test chatbot with current data
