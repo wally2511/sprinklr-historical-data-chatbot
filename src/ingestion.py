@@ -14,6 +14,7 @@ from sprinklr_client import SprinklrClient
 from mock_data import generate_mock_cases
 from services.theme_extractor import ThemeExtractor, extract_theme_keywords
 from services.message_store import MessageStore, find_message_database
+from services.case_classifier import CaseClassifier
 
 
 class IngestionPipeline:
@@ -23,20 +24,33 @@ class IngestionPipeline:
         """Initialize the ingestion pipeline."""
         self.vector_store = VectorStore()
         self.llm_client = None
+        self.openai_client = None
         self.llm_provider = config.LLM_PROVIDER
 
         # Initialize LLM client based on provider setting
         if self.llm_provider == "openai" and config.validate_openai_config():
             import openai
             self.llm_client = openai.OpenAI(api_key=config.OPENAI_API_KEY)
+            self.openai_client = self.llm_client
         elif config.validate_anthropic_config():
             import anthropic
             self.llm_client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+
+        # Initialize OpenAI client for classification if not already set
+        if not self.openai_client and config.validate_openai_config():
+            import openai
+            self.openai_client = openai.OpenAI(api_key=config.OPENAI_API_KEY)
 
         # Initialize theme extractor (uses keyword-based extraction by default)
         self.theme_extractor = ThemeExtractor(
             llm_client=self.llm_client if self.llm_provider == "anthropic" else None,
             method="keyword"  # Use "llm" for more accurate but slower extraction
+        )
+
+        # Initialize case classifier (uses OpenAI for efficiency)
+        self.case_classifier = CaseClassifier(
+            openai_client=self.openai_client,
+            model="gpt-4o-mini"  # Fast and cost-effective
         )
 
     def _format_conversation(self, messages: List[Dict[str, Any]]) -> str:
@@ -126,7 +140,7 @@ Summary:"""
             case: Raw case data with messages
 
         Returns:
-            Processed case with summary and formatted conversation
+            Processed case with summary, classification, and formatted conversation
         """
         # Format the conversation
         messages = case.get("messages", [])
@@ -137,6 +151,9 @@ Summary:"""
             summary = self._generate_summary_with_llm(full_conversation)
         else:
             summary = self._generate_simple_summary(full_conversation)
+
+        # Classify case_type and case_topic
+        classification = self.case_classifier.classify(full_conversation)
 
         return {
             "id": case.get("id", ""),
@@ -155,6 +172,8 @@ Summary:"""
             "language": case.get("language", ""),
             "country": case.get("country", ""),
             "message_count": len(messages),
+            "case_type": classification.get("case_type", "general"),
+            "case_topic": classification.get("case_topic", "general"),
         }
 
     def ingest_mock_data(

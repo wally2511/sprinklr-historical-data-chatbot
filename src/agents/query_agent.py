@@ -51,7 +51,7 @@ class SearchStep:
     A single step in a compound search strategy.
 
     Attributes:
-        step_type: Type of search (aggregation, broad_search, filtered_search, specific_case)
+        step_type: Type of search (database_query, aggregation, broad_search, filtered_search, specific_case)
         purpose: Description of what this step accomplishes
         semantic_query: Query text for semantic search
         result_count: Number of results to retrieve
@@ -63,8 +63,11 @@ class SearchStep:
         case_numbers: Case numbers for specific lookups (from prior steps)
         aggregation_type: Type of aggregation for aggregation steps
         use_prior_results: Whether to derive filters from prior step results
+        group_by: Field to group results by (for database_query)
+        top_n: Limit results to top N (for database_query)
+        filters: Metadata filters (for database_query)
     """
-    step_type: str  # "aggregation", "broad_search", "filtered_search", "specific_case"
+    step_type: str  # "database_query", "aggregation", "broad_search", "filtered_search", "specific_case"
     purpose: str  # Description: "Get theme distribution", "Find top anxiety cases"
     semantic_query: Optional[str] = None
     result_count: int = 10
@@ -76,6 +79,9 @@ class SearchStep:
     case_numbers: Optional[List[int]] = None  # For specific lookups from prior steps
     aggregation_type: Optional[str] = None
     use_prior_results: bool = False  # Whether to derive filters from prior step
+    group_by: Optional[str] = None  # For database_query: field to group by
+    top_n: Optional[int] = None  # For database_query: limit to top N results
+    filters: Optional[Dict[str, Any]] = None  # For database_query: metadata filters
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -167,6 +173,19 @@ Output: {"query_type": "aggregation", "aggregation_type": "count_by_brand", "res
         "past week", "past month", "recent", "this week", "this month"
     ]
 
+    # Patterns that indicate a database query is needed (counts, top N, etc.)
+    DATABASE_QUERY_PATTERNS = [
+        r"top\s+\d+",           # "top 4", "top 10"
+        r"how many",            # "how many crisis cases"
+        r"count of",            # "count of prayer requests"
+        r"number of",           # "number of health topics"
+        r"most common",         # "most common topics"
+        r"breakdown",           # "breakdown by type"
+        r"distribution",        # "distribution of case types"
+        r"what types of",       # "what types of prayer requests"
+        r"what are the \w+ types",  # "what are the main types"
+    ]
+
     # Patterns that indicate a compound (multi-step) search strategy is needed
     COMPOUND_INDICATORS = [
         r"and\s+(show|give|provide|include|list).*examples?",
@@ -190,6 +209,9 @@ Output: {"query_type": "aggregation", "aggregation_type": "count_by_brand", "res
 Given a complex query, break it into ordered search steps. Each step builds on prior results.
 
 Available step types:
+- database_query: Filter and aggregate by metadata fields. Use for "top N", counting queries, or distribution analysis.
+  Fields you can group_by: case_type, case_topic, theme, brand, channel, outcome
+  Example: {"step_type": "database_query", "group_by": "case_topic", "filters": {"theme": "prayer"}, "top_n": 4}
 - aggregation: Get statistics (count_by_theme, count_by_brand, sentiment_distribution). Returns distributions.
 - broad_search: Get many case summaries (up to 50). Good for pattern finding.
 - filtered_search: Get few cases with full transcripts (up to 10). Good for detailed examples.
@@ -201,7 +223,7 @@ Output JSON:
   "synthesis_strategy": "hierarchical|comparative|timeline",
   "steps": [
     {
-      "step_type": "aggregation|broad_search|filtered_search|specific_case",
+      "step_type": "database_query|aggregation|broad_search|filtered_search|specific_case",
       "purpose": "Description of what this step accomplishes",
       "semantic_query": "search query text or null",
       "result_count": 10,
@@ -210,7 +232,10 @@ Output JSON:
       "brands": ["brand1"] or null,
       "date_start": "YYYY-MM-DD" or null,
       "date_end": "YYYY-MM-DD" or null,
-      "aggregation_type": "count_by_theme|count_by_brand|sentiment_distribution" or null,
+      "aggregation_type": "count_by_theme|count_by_brand|count_by_case_type|count_by_case_topic|sentiment_distribution" or null,
+      "group_by": "case_type|case_topic|theme|brand" or null,
+      "top_n": number or null,
+      "filters": {"field": "value"} or null,
       "use_prior_results": false
     }
   ]
@@ -223,9 +248,10 @@ synthesis_strategy options:
 
 Guidelines:
 - Maximum 4 steps to avoid context overload
-- First step is usually aggregation or broad_search for overview
+- First step is usually database_query or aggregation for overview
 - Later steps use filtered_search or specific_case for details
 - Use themes/brands/dates from prior steps when use_prior_results is true
+- For "top N" queries, use database_query with group_by and top_n
 - result_count limits: broad_search max 50, filtered_search max 10, specific_case max 3"""
 
     def __init__(self, llm_client=None, provider: str = "anthropic"):
@@ -502,6 +528,22 @@ Analyze this query and output a JSON search plan."""
             detail_level="summary"
         )
 
+    def _needs_database_query(self, query: str) -> bool:
+        """
+        Determine if a query requires a database query (counts, top N, etc.).
+
+        Args:
+            query: The user's natural language query
+
+        Returns:
+            True if database query is needed, False otherwise
+        """
+        query_lower = query.lower()
+        return any(
+            re.search(pattern, query_lower)
+            for pattern in self.DATABASE_QUERY_PATTERNS
+        )
+
     def _needs_compound_strategy(self, query: str) -> bool:
         """
         Determine if a query requires a compound (multi-step) search strategy.
@@ -513,6 +555,11 @@ Analyze this query and output a JSON search plan."""
             True if compound strategy is needed, False otherwise
         """
         query_lower = query.lower()
+
+        # Database queries with examples typically need compound strategy
+        if self._needs_database_query(query) and ("example" in query_lower or "show" in query_lower):
+            return True
+
         return any(
             re.search(pattern, query_lower)
             for pattern in self.COMPOUND_INDICATORS
@@ -595,7 +642,10 @@ Analyze this complex query and create a multi-step search plan. Output valid JSO
                         date_end=step_date_end,
                         case_numbers=step_dict.get("case_numbers"),
                         aggregation_type=step_dict.get("aggregation_type"),
-                        use_prior_results=step_dict.get("use_prior_results", False)
+                        use_prior_results=step_dict.get("use_prior_results", False),
+                        group_by=step_dict.get("group_by"),
+                        top_n=step_dict.get("top_n"),
+                        filters=step_dict.get("filters")
                     )
                     steps.append(step)
 

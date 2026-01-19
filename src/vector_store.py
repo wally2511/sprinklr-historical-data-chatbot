@@ -122,6 +122,8 @@ class VectorStore:
                 "language": case.get("language", ""),
                 "country": case.get("country", ""),
                 "case_number": case.get("case_number") or 0,
+                "case_type": case.get("case_type", ""),
+                "case_topic": case.get("case_topic", ""),
             }
 
             ids.append(case_id)
@@ -376,6 +378,158 @@ class VectorStore:
                 counts[value] = counts.get(value, 0) + 1
 
         return dict(sorted(counts.items(), key=lambda x: -x[1]))
+
+    def count_by_case_type(self) -> Dict[str, int]:
+        """
+        Count cases grouped by case_type.
+
+        Returns:
+            Dictionary mapping case types to case counts
+        """
+        return self.count_by_field("case_type")
+
+    def count_by_case_topic(self) -> Dict[str, int]:
+        """
+        Count cases grouped by case_topic.
+
+        Returns:
+            Dictionary mapping case topics to case counts
+        """
+        return self.count_by_field("case_topic")
+
+    def get_all_case_types(self) -> List[str]:
+        """Get all unique case types in the store."""
+        results = self.collection.get(include=["metadatas"])
+        case_types = set()
+        if results and results["metadatas"]:
+            for metadata in results["metadatas"]:
+                if metadata.get("case_type"):
+                    case_types.add(metadata["case_type"])
+        return sorted(list(case_types))
+
+    def get_all_case_topics(self) -> List[str]:
+        """Get all unique case topics in the store."""
+        results = self.collection.get(include=["metadatas"])
+        case_topics = set()
+        if results and results["metadatas"]:
+            for metadata in results["metadatas"]:
+                if metadata.get("case_topic"):
+                    case_topics.add(metadata["case_topic"])
+        return sorted(list(case_topics))
+
+    def filter_and_count(
+        self,
+        group_by: str,
+        filters: Optional[Dict[str, str]] = None,
+        top_n: Optional[int] = None
+    ) -> Dict[str, int]:
+        """
+        Count by group_by field with optional filters.
+
+        This enables database-style queries like:
+        "Count cases by case_topic where theme='prayer'"
+
+        Args:
+            group_by: Field to group results by (e.g., "case_topic", "case_type")
+            filters: Optional dict of field -> value filters to apply
+            top_n: Optional limit to return only top N results
+
+        Returns:
+            Dictionary mapping group_by values to counts, sorted descending
+
+        Example:
+            # Get top 4 prayer request topics
+            filter_and_count("case_topic", filters={"theme": "prayer"}, top_n=4)
+        """
+        # Build where clause from filters
+        where_clause = None
+        if filters:
+            where_conditions = []
+            for field, value in filters.items():
+                if isinstance(value, list):
+                    where_conditions.append({field: {"$in": value}})
+                else:
+                    where_conditions.append({field: {"$eq": value}})
+
+            if len(where_conditions) == 1:
+                where_clause = where_conditions[0]
+            else:
+                where_clause = {"$and": where_conditions}
+
+        # Get filtered results
+        results = self.collection.get(
+            where=where_clause,
+            include=["metadatas"]
+        )
+
+        # Count by group_by field
+        counts: Dict[str, int] = {}
+        if results and results["metadatas"]:
+            for metadata in results["metadatas"]:
+                value = metadata.get(group_by) or "Unknown"
+                if isinstance(value, (int, float)):
+                    value = str(value)
+                counts[value] = counts.get(value, 0) + 1
+
+        # Sort descending by count
+        sorted_counts = dict(sorted(counts.items(), key=lambda x: -x[1]))
+
+        # Apply top_n limit if specified
+        if top_n:
+            sorted_counts = dict(list(sorted_counts.items())[:top_n])
+
+        return sorted_counts
+
+    def get_filtered_cases(
+        self,
+        filters: Optional[Dict[str, str]] = None,
+        limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get cases matching filter criteria.
+
+        Args:
+            filters: Dict of field -> value filters to apply
+            limit: Maximum number of cases to return
+
+        Returns:
+            List of case dictionaries
+        """
+        # Build where clause
+        where_clause = None
+        if filters:
+            where_conditions = []
+            for field, value in filters.items():
+                if isinstance(value, list):
+                    where_conditions.append({field: {"$in": value}})
+                else:
+                    where_conditions.append({field: {"$eq": value}})
+
+            if len(where_conditions) == 1:
+                where_clause = where_conditions[0]
+            else:
+                where_clause = {"$and": where_conditions}
+
+        # Get filtered results
+        results = self.collection.get(
+            where=where_clause,
+            include=["documents", "metadatas"]
+        )
+
+        cases = []
+        if results and results["ids"]:
+            for i, case_id in enumerate(results["ids"]):
+                case = {
+                    "id": case_id,
+                    "summary": results["documents"][i] if results["documents"] else "",
+                    "metadata": results["metadatas"][i] if results["metadatas"] else {}
+                }
+                cases.append(case)
+
+                if limit and len(cases) >= limit:
+                    break
+
+        return cases
 
     def get_all_cases(
         self,

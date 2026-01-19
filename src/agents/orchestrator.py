@@ -270,7 +270,11 @@ class Orchestrator:
         Returns:
             Dictionary with cases and/or aggregation data
         """
-        if step.step_type == "aggregation":
+        if step.step_type == "database_query":
+            # Execute database query (filter and count)
+            return self._execute_database_query(step)
+
+        elif step.step_type == "aggregation":
             # Execute aggregation
             agg_result = self._execute_aggregation_step(step)
             return {"aggregation": agg_result}
@@ -321,6 +325,58 @@ class Orchestrator:
             return {"cases": cases}
 
         return {}
+
+    def _execute_database_query(self, step: SearchStep) -> Dict[str, Any]:
+        """
+        Execute a database query step (filter and count/aggregate).
+
+        Args:
+            step: SearchStep with group_by, filters, and top_n specified
+
+        Returns:
+            Dictionary with aggregation data and optionally sample cases
+        """
+        result = {}
+
+        if step.group_by:
+            # Use the filter_and_count method from vector_store
+            counts = self.vector_store.filter_and_count(
+                group_by=step.group_by,
+                filters=step.filters,
+                top_n=step.top_n
+            )
+
+            # Calculate total for percentage
+            total = sum(counts.values())
+
+            result["aggregation"] = {
+                f"{step.group_by}_distribution": counts,
+                "total": total,
+                "group_by": step.group_by,
+                "filters_applied": step.filters
+            }
+
+            # Also get sample cases for each top category (for examples)
+            if step.top_n and step.top_n <= 5:
+                sample_cases = []
+                for category in list(counts.keys())[:step.top_n]:
+                    # Get 1-2 sample cases for each category
+                    category_filters = {step.group_by: category}
+                    if step.filters:
+                        category_filters.update(step.filters)
+
+                    category_cases = self.vector_store.get_filtered_cases(
+                        filters=category_filters,
+                        limit=2
+                    )
+                    for case in category_cases:
+                        case["_category"] = category
+                    sample_cases.extend(category_cases)
+
+                if sample_cases:
+                    result["cases"] = sample_cases
+
+        return result
 
     def _execute_aggregation_step(self, step: SearchStep) -> Dict[str, Any]:
         """

@@ -73,6 +73,26 @@ Your role is to:
 
 Be empathetic when discussing sensitive topics and cite case numbers when referencing examples."""
 
+    DATABASE_QUERY_PROMPT = """You are presenting database query results from customer service cases from faith-based organizations.
+
+Your role is to:
+1. Present counts and percentages clearly in a numbered list or table format
+2. Highlight the most significant findings (top categories, notable patterns)
+3. Reference example cases to illustrate each category when provided
+4. Provide actionable insights based on the data distribution
+5. Use clear formatting with bold for category names and percentages
+
+Format example for "top 4 prayer request types":
+**Top 4 Prayer Request Types:**
+
+1. **Health** - 234 cases (34%)
+   - Example: Case #12345 - User requested prayer for cancer diagnosis...
+
+2. **Family** - 189 cases (27%)
+   - Example: Case #23456 - Parent seeking prayer for wayward child...
+
+Be empathetic when discussing sensitive topics like health crises, grief, or mental health."""
+
     # Compound search prompts for multi-step strategies
     COMPOUND_PROMPT_HIERARCHICAL = """You are synthesizing results from a multi-step search strategy for customer service cases from faith-based organizations.
 
@@ -480,19 +500,37 @@ Please provide a comprehensive answer that synthesizes the statistical data (if 
     def _format_aggregation_data(self, data: Dict[str, Any]) -> str:
         """Format aggregation data for compound context."""
         parts = []
-        total = data.get("total_cases", 0)
+
+        # Handle database query format (has "total" instead of "total_cases")
+        total = data.get("total") or data.get("total_cases", 0)
         parts.append(f"Total cases: {total}")
 
+        # Show what field was grouped by if available
+        if data.get("group_by"):
+            parts.append(f"Grouped by: {data['group_by']}")
+
+        # Show filters if applied
+        if data.get("filters_applied"):
+            filters_str = ", ".join(f"{k}={v}" for k, v in data["filters_applied"].items())
+            parts.append(f"Filters: {filters_str}")
+
         for key, value in data.items():
-            if key == "total_cases":
+            if key in ("total_cases", "total", "group_by", "filters_applied"):
                 continue
             if isinstance(value, dict):
                 parts.append(f"\n{key.replace('_', ' ').title()}:")
-                sorted_items = sorted(value.items(), key=lambda x: -x[1])[:10]
+                # Sort by count if values are integers, otherwise just iterate
+                try:
+                    sorted_items = sorted(value.items(), key=lambda x: -x[1])[:10]
+                except TypeError:
+                    sorted_items = list(value.items())[:10]
                 for k, v in sorted_items:
-                    pct = (v / total * 100) if total > 0 else 0
-                    parts.append(f"  - {k}: {v} ({pct:.1f}%)")
-            else:
+                    if isinstance(v, (int, float)) and total > 0:
+                        pct = (v / total * 100)
+                        parts.append(f"  - {k}: {v} ({pct:.1f}%)")
+                    else:
+                        parts.append(f"  - {k}: {v}")
+            elif key not in ("total_cases", "total", "group_by", "filters_applied"):
                 parts.append(f"{key}: {value}")
 
         return "\n".join(parts)
