@@ -14,51 +14,64 @@ from typing import List
 
 
 # Case Types - The nature/intent of the interaction
-# Examples: prayer_request, question, crisis_support, testimony, etc.
+# Discovered from analysis of 1000 cases + domain knowledge
 CASE_TYPES: List[str] = [
     "prayer_request",       # User requesting prayer for themselves or others
     "question",             # General question about faith, theology, or life
-    "crisis_support",       # Urgent emotional or spiritual crisis
     "testimony",            # Sharing a testimony or praise report
+    "feedback",             # Feedback about the organization, content, or service
+    "encouragement_seeking", # Seeking encouragement, affirmation, or support
+    "crisis_support",       # Urgent emotional or spiritual crisis
     "counseling_request",   # Request for deeper guidance or counseling
     "resource_request",     # Asking for books, studies, or materials
-    "feedback",             # Feedback about the organization or service
     "complaint",            # Complaint or concern about experience
-    "encouragement",        # Seeking encouragement or affirmation
+    "greeting",             # Simple greeting or brief interaction
+    "appreciation",         # Expressing thanks or appreciation
     "confession",           # Sharing struggles or seeking accountability
     "salvation_inquiry",    # Questions about becoming a Christian
-    "volunteer_inquiry",    # Interest in volunteering or serving
     "general",              # General interaction that doesn't fit other categories
 ]
 
 # Case Topics - The subject matter being discussed
-# Examples: health, family, relationships, finances, etc.
+# Consolidated from LLM analysis of 1000 cases
 CASE_TOPICS: List[str] = [
-    "health",               # Physical health, illness, healing
-    "family",               # Family relationships, parenting, children
-    "relationships",        # Friendships, dating, conflict
-    "marriage",             # Marital issues, divorce, engagement
-    "finances",             # Money, debt, provision, employment
-    "career",               # Work, calling, job transitions
-    "spiritual_growth",     # Growing in faith, discipleship
-    "grief",                # Loss, mourning, death of loved one
-    "anxiety",              # Worry, fear, stress, panic
-    "depression",           # Hopelessness, sadness, mental health
-    "addiction",            # Substance abuse, behavioral addictions
+    # Faith & Spiritual Life
+    "spiritual_growth",     # Growing in faith, discipleship, devotional life
+    "prayer",               # Prayer requests, prayer life, intercession
+    "bible_study",          # Scripture, theology, doctrine questions
+    "worship",              # Worship, music, praise
     "salvation",            # Coming to faith, understanding gospel
     "doubt",                # Questions about faith, struggles to believe
+    "evangelism",           # Sharing faith, witnessing, outreach
+
+    # Relationships & Family
+    "relationships",        # Friendships, dating, conflict, community
+    "marriage",             # Marital issues, divorce, engagement
+    "family",               # Family relationships, parenting, children
+    "loneliness",           # Isolation, seeking connection
+
+    # Life Challenges
+    "health",               # Physical health, illness, healing
+    "mental_health",        # Anxiety, depression, emotional struggles
+    "grief",                # Loss, mourning, death of loved one
+    "addiction",            # Substance abuse, behavioral addictions
+    "finances",             # Money, debt, provision, employment
+    "career",               # Work, calling, job transitions
+
+    # Personal Growth
     "guidance",             # Decision-making, discernment, direction
-    "peace",                # Finding rest, calm, comfort
     "purpose",              # Life meaning, calling, destiny
     "forgiveness",          # Forgiving others, receiving forgiveness
-    "suffering",            # Making sense of pain, hardship
-    "church",               # Church hurt, finding community
-    "parenting",            # Raising children, youth issues
     "identity",             # Self-worth, who I am in Christ
-    "sin",                  # Struggling with sin, temptation
-    "bible_study",          # Understanding scripture, theology
-    "prayer_life",          # How to pray, prayer practice
-    "evangelism",           # Sharing faith, witnessing
+    "suffering",            # Making sense of pain, hardship
+
+    # Media & Content
+    "media_content",        # Questions about shows, music, content
+    "technology",           # AI, apps, digital tools
+
+    # Other
+    "politics",             # Political concerns, social issues
+    "church",               # Church hurt, finding community, leadership
     "general",              # Topic doesn't fit other categories
 ]
 
